@@ -210,6 +210,15 @@ local reticleInteractionToChatDelay = 500
 FCOAB.groupLeaderData = {}
 local groupLeaderData = FCOAB.groupLeaderData
 
+local combatTips = {
+		--The table key is the tipId
+		-- Priority: BLOCK -> OFF BALANCE -> INTERRUPT -> DODGE
+		[1] = {key = "block", 		tipId = 1, label = "BLOCK"},
+		[2] = {key = "offBalance", 	tipId = 2, label = "OFF BALANCE"},
+		[3] = {key = "interrupt", 	tipId = 3, label = "INTERRUPT"},
+		[4] = {key = "dodge", 		tipId = 4, label = "DODGE"}
+}
+
 
 --===================== EARLY CALLED game code ==============================================
 
@@ -236,6 +245,14 @@ end
 local function outputLAMSettingsChangeToChat(chatMsg, prefixText)
 	if FCOAB.settingsVars.settings.thisAddonLAMSettingsSetFuncToChat == false then return end
 	addToChatWithPrefix(chatMsg, strfor(FCOABSettingsPrefixStr, prefixText))
+end
+
+local function showCombatTipInChat(tipId)
+	if tipId == nil or tipId <= 0 or not FCOAB.settingsVars.settings.combatTipToChat then return end
+	local tipData = combatTips[tipId]
+	if tipData == nil then return end
+
+	addToChatWithPrefix(tipData.label, nil)
 end
 
 local function getCompassChatText(newText)
@@ -1540,6 +1557,20 @@ local function BuildAddonMenu()
 
 		{
 			type = "checkbox",
+			name = "Combat: Tip to chat",
+			tooltip = "If you get a tip in combat, like \'Block\' or \'Dodge\' or \'Interrupt\', the tip will be written to the chat so that the accessibility chat reader can read it to you",
+			getFunc = function() return settings.combatTipToChat end,
+			setFunc = function(value)
+				settings.combatTipToChat = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat: Tip to chat")
+			end,
+			default = defaultSettings.combatTipToChat,
+			--disabled = function() false end,
+		},
+
+
+		{
+			type = "checkbox",
 			name    = "Combat start - Play sound",
 			tooltip = "Plays a sound once if you get into combat.",
 			getFunc = function() return settings.combatStartSound end,
@@ -1860,7 +1891,7 @@ local function CreateCompassHooks()
 		}
 
 		function COMPASS:OnUpdate()
-			local self = COMPASS
+			local self = compass
 			if self.areaOverrideAnimation:IsPlaying() then
 				self.centerOverPinLabelAnimation:PlayBackward()
 			elseif not self.centerOverPinLabelAnimation:IsPlaying() or not self.centerOverPinLabelAnimation:IsPlayingBackward() then
@@ -2099,6 +2130,7 @@ local function LoadUserSettings()
 		combatEndSoundName = "ActiveCombatTip_Failed",
 		combatEndSoundRepeat = 2,
 
+		combatTipToChat = true,
     }
 	local defaults = FCOAB.settingsVars.defaults
 
@@ -2167,6 +2199,18 @@ local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 
 	--Combat
 	EM:RegisterForEvent(addonName .. "_EVENT_PLAYER_COMBAT_STATE", 	EVENT_PLAYER_COMBAT_STATE, 	onPlayerCombatState)
+	EM:RegisterForEvent(addonName .. "_EVENT_DISPLAY_ACTIVE_COMBAT_TIP", EVENT_DISPLAY_ACTIVE_COMBAT_TIP, function(_, tipId)
+		--Hide ZOs alert?
+		--ZO_ActiveCombatTips:SetHidden(true)
+		--Chat output for the combat tipId
+		showCombatTipInChat(tipId)
+	end)
+	--[[
+	EM:RegisterForEvent(addonName .. "_EVENT_REMOVE_ACTIVE_COMBAT_TIP", EVENT_REMOVE_ACTIVE_COMBAT_TIP, function(_, tipId)
+	end)
+	]]
+
+
 
 	addonVars.gAddonLoaded = true
 end
