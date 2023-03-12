@@ -595,6 +595,8 @@ local function reticleUnitData()
 					local gender = GetUnitGender(CON_RETICLE)
 					local isDead = IsUnitDead(CON_RETICLE)
 					local isAttackable = IsUnitAttackable(CON_RETICLE)
+					local difficulty = GetUnitDifficulty(CON_RETICLE)
+					local unitReaction = GetUnitReaction(CON_RETICLE)
 
 					--[[
 						UNIT_TYPE_PLAYER	1
@@ -697,6 +699,34 @@ local function reticleUnitData()
 											unitPrefix = "Livestock"
 										else
 											local isNPC = (isAttackable == false and true) or false
+											--[[
+											UNIT_REACTION_DEFAULT = 0
+											UNIT_REACTION_HOSTILE = 1
+											UNIT_REACTION_NEUTRAL = 2
+											UNIT_REACTION_FRIENDLY = 3
+											UNIT_REACTION_PLAYER_ALLY = 4
+											UNIT_REACTION_NPC_ALLY = 5
+											UNIT_REACTION_COMPANION = 6
+											]]
+											if unitReaction == UNIT_REACTION_FRIENDLY or unitReaction == UNIT_REACTION_PLAYER_ALLY then
+												isNPC = false
+												local currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
+												if currentHealth < maxHealth then
+													isAttackable = true
+												else
+													isAttackable = false
+												end
+											elseif UNIT_REACTION_HOSTILE and isAttackable == false then
+												isAttackable = true
+												isNPC = false
+											elseif UNIT_REACTION_NPC_ALLY then
+												isAttackable = false
+												isNPC = true
+											elseif UNIT_REACTION_NEUTRAL then
+												isAttackable = false
+												isNPC = true
+											end
+
 											if isNPC then
 												unitPrefix = "NPC"
 											else
@@ -707,9 +737,8 @@ local function reticleUnitData()
 												* MONSTER_DIFFICULTY_NONE
 												* MONSTER_DIFFICULTY_NORMAL
 												]]
-												local difficulty = GetUnitDifficulty(CON_RETICLE)
 												if difficulty == MONSTER_DIFFICULTY_NONE then
-													unitPrefix = "NPC (attackable)"
+													unitPrefix = "Critter"
 												elseif difficulty >= MONSTER_DIFFICULTY_EASY and difficulty <= MONSTER_DIFFICULTY_NORMAL then
 													unitPrefix = "Monster"
 												elseif difficulty == MONSTER_DIFFICULTY_HARD then
