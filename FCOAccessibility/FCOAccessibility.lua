@@ -878,6 +878,18 @@ local function getPreviewDataTab(soundType, repeats)
 			delayInMS = settings.groupLeaderSoundDelay * 1000, --transfer seconds to milliseconds
 			increaseVolume = settings.groupLeaderSoundRepeat,
 		}
+	elseif soundType == "CombatStart" then
+		return {
+			playCount = repeats,
+			delayInMS = 0,
+			increaseVolume = settings.combatStartSoundRepeat,
+		}
+	elseif soundType == "CombatEnd" then
+		return {
+			playCount = repeats,
+			delayInMS = 0,
+			increaseVolume = settings.combatEndSoundRepeat,
+		}
 	end
 end
 
@@ -1595,7 +1607,7 @@ local function BuildAddonMenu()
 		{
 			type = "checkbox",
 			name    = "Combat end - Play sound",
-			tooltip = "Plays a sound once if you get into combat.",
+			tooltip = "Plays a sound once if you leave combat.",
 			getFunc = function() return settings.combatEndSound end,
 			setFunc = function(value)
 				settings.combatEndSound = value
@@ -1607,7 +1619,7 @@ local function BuildAddonMenu()
 		{
 			type = "soundslider",
 			name = "Combat end: Choose sound", -- or string id or function returning a string
-			tooltip = "Choose the sound to play if combat starts. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
+			tooltip = "Choose the sound to play if combat ends. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
 			getFunc = function() return settings.combatEndSoundName end,
 			setFunc = function(value)
 				settings.combatEndSoundName = value
@@ -1618,7 +1630,7 @@ local function BuildAddonMenu()
 			saveSoundIndex = false, -- or function returning a boolean (optional) If set to false (default) the internal soundName will be saved. If set to true the selected sound's index will be saved to the SavedVariables (the index might change if sounds get inserted later!).
 			showSoundName = true, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be shown at the label of the slider, and at the tooltip too
 			playSound = false, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be played via function PlaySound
-			playSoundData = function() return getPreviewDataTab("CombatStart", 1) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
+			playSoundData = function() return getPreviewDataTab("CombatEnd", 1) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
 			showPlaySoundButton = true,
 			noAutomaticSoundPreview = false,
 			readOnly = false, -- boolean, you can use the slider, but you can't insert a value manually (optional)
@@ -1628,12 +1640,12 @@ local function BuildAddonMenu()
 			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
 			default = defaultSettings.combatEndSoundName, -- default value or function that returns the default value (optional)
 			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
-			reference = "FCOAB_LAM_COMBAT_START_SOUNDSLIDER" -- unique global reference to control (optional)
+			reference = "FCOAB_LAM_COMBAT_END_SOUNDSLIDER" -- unique global reference to control (optional)
 		},
 		{
 			type = "slider",
 			name = "Combat end: Volume", -- or string id or function returning a string
-			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound if combat is started to increase the volume with this slider.",
+			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound if combat ends to increase the volume with this slider.",
 			getFunc = function() return settings.combatEndSoundRepeat end,
 			setFunc = function(value)
 				settings.combatEndSoundRepeat = value
