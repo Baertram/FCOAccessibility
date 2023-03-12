@@ -226,14 +226,12 @@ local combatTips = {
 
 --===================== FUNCTIONS ==============================================
 
---[[
 local function startsWith(strToSearch, searchFor)
 	if string.find(strToSearch, searchFor, 1, true) ~= nil then
 		return true
 	end
 	return false
 end
-]]
 
 local function addToChatWithPrefix(chatMsg, prefixText)
 	if chatMsg == nil or chatMsg == "" then return end
@@ -594,7 +592,9 @@ local function reticleUnitData()
 
 					local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
 					local unitCaption = zo_strformat(SI_UNIT_NAME, GetUnitCaption(CON_RETICLE))
+					local gender = GetUnitGender(CON_RETICLE)
 					local isDead = IsUnitDead(CON_RETICLE)
+					local isAttackable = IsUnitAttackable(CON_RETICLE)
 
 					--[[
 						UNIT_TYPE_PLAYER	1
@@ -603,18 +603,45 @@ local function reticleUnitData()
 					local unitType = GetUnitType(CON_RETICLE)
 					--Player characters
 					if unitType == UNIT_TYPE_PLAYER and reticlePlayerToChatText == true then
-						unitPrefix = "Player"
+						unitDisplayName = GetUnitDisplayName(CON_RETICLE)
+						local isFriend = IsUnitFriend(CON_RETICLE)
+						if isFriend  then
+							unitPrefix = "Friend"
+						else
+							local isGuildMate = false
+							local guildIndex
+							for idx=1, GetNumGuilds(), 1 do
+								if guildIndex == nil and isGuildMate == false then
+									local guildId = GetGuildId(idx)
+									if guildId ~= nil then
+										local guildMemberIndex = GetGuildMemberIndexFromDisplayName(guildId, unitDisplayName)
+										if guildMemberIndex ~= nil and guildMemberIndex > 0 then
+											guildIndex = idx
+											isGuildMate = true
+											break
+										end
+									end
+								end
+							end
+							if isGuildMate == true then
+								unitPrefix = strfor("Guild %s member", tos(guildIndex))
+							else
+								unitPrefix = "Player"
+							end
+						end
 
 						local isGrouped = IsUnitGrouped(CON_RETICLE)
 						local class = ZO_CachedStrFormat(SI_UNIT_NAME,GetUnitClass(CON_RETICLE))
 						local race = GetUnitRace(CON_RETICLE)
-						local gender = GetUnitGender(CON_RETICLE)
 						local alliance = GetUnitAlliance(CON_RETICLE)
 						local level = GetUnitLevel(CON_RETICLE)
 						local cp = GetUnitEffectiveChampionPoints(CON_RETICLE)
-						unitDisplayName = GetUnitDisplayName(CON_RETICLE)
 						if isDead  then
-							unitPrefix = unitPrefix .. " (dead)"
+							if IsUnitBeingResurrected(CON_RETICLE) then
+								unitPrefix = unitPrefix .. " (actively ressurrected)"
+							else
+								unitPrefix = unitPrefix .. " (dead)"
+							end
 						end
 						if isGrouped then
 							unitPrefix = unitPrefix " (in a group)"
@@ -623,7 +650,7 @@ local function reticleUnitData()
 							unitSuffix = unitSuffix or ""
 							unitSuffix = unitSuffix .. ", class: " .. class
 						end
-						if race and gender then
+						if race ~= nil and gender ~= nil and type(race) == "number" then
 							local raceName = ZO_CachedStrFormat(SI_UNIT_NAME, GetRaceName(gender, race))
 							unitSuffix = unitSuffix or ""
 							unitSuffix = unitSuffix .. ", race: " .. raceName
@@ -636,7 +663,7 @@ local function reticleUnitData()
 								unitSuffix = unitSuffix .. ", level: " .. tos(level)
 							end
 						end
-						if alliance then
+						if alliance and type(alliance) == "number" then
 							unitSuffix = unitSuffix or ""
 							local allianceName = ZO_CachedStrFormat(SI_UNIT_NAME, GetAllianceName(alliance))
 							unitSuffix = unitSuffix .. ", alliance: " .. allianceName
@@ -646,11 +673,55 @@ local function reticleUnitData()
 					--Monsters and NPCs
 					elseif unitType == UNIT_TYPE_MONSTER then
 						local isEngaged = IsUnitActivelyEngaged(CON_RETICLE)
-						local companionName = ZO_CachedStrFormat(SI_UNIT_NAME, GetUnitName(CON_COMPANION))
-						if unitName == companionName then
+
+						--local companionName = ZO_CachedStrFormat(SI_UNIT_NAME, GetUnitName(CON_COMPANION))
+						--local isMyCompanion = (unitName == companionName and true) or false
+						local isMyCompanion = AreUnitsEqual(CON_COMPANION, CON_RETICLE)
+						if isMyCompanion == true then
 							unitPrefix = "My companion"
 						else
-							unitPrefix = "NPC/Monster"
+							local isInvulnerableGuard = IsUnitInvulnerableGuard(CON_RETICLE)
+							if isInvulnerableGuard then
+								unitPrefix = "Invulnerable GUARD"
+							else
+								local isJusticeGuard = IsUnitJusticeGuard(CON_RETICLE)
+								if isJusticeGuard then
+									unitPrefix = "Justice GUARD"
+								else
+									local isFriendlyFollower = IsUnitFriendlyFollower(CON_RETICLE)
+									if isFriendlyFollower then
+										unitPrefix = "Friendly follower"
+									else
+										local isLiveStock = IsUnitLivestock(CON_RETICLE)
+										if isLiveStock then
+											unitPrefix = "Livestock"
+										else
+											local isNPC = (isAttackable == false and true) or false
+											if isNPC then
+												unitPrefix = "NPC"
+											else
+												--[[
+												* MONSTER_DIFFICULTY_DEADLY
+												* MONSTER_DIFFICULTY_EASY
+												* MONSTER_DIFFICULTY_HARD
+												* MONSTER_DIFFICULTY_NONE
+												* MONSTER_DIFFICULTY_NORMAL
+												]]
+												local difficulty = GetUnitDifficulty(CON_RETICLE)
+												if difficulty == MONSTER_DIFFICULTY_NONE then
+													unitPrefix = "NPC (attackable)"
+												elseif difficulty >= MONSTER_DIFFICULTY_EASY and difficulty <= MONSTER_DIFFICULTY_NORMAL then
+													unitPrefix = "Monster"
+												elseif difficulty == MONSTER_DIFFICULTY_HARD then
+													unitPrefix = "HARD monster"
+												elseif difficulty == MONSTER_DIFFICULTY_DEADLY then
+													unitPrefix = "DEADLY monster"
+												end
+											end
+										end
+									end
+								end
+							end
 						end
 						if isEngaged == true then
 							unitPrefix = unitPrefix .. " (in combat)"
