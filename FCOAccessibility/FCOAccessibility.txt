@@ -1,0 +1,17 @@
+## Title: |c00FF00FCO |cFFFF00Accessibility|r
+## Author: Baertram
+## Version: 0.3
+## AddOnVersion: 000030
+## APIVersion: 101036 101037
+## Description: An accessibility helper addon, especially for visually impaired players
+## SavedVariables: FCOAccessibility_Settings
+## DependsOn: LibAddonMenu-2.0>=34 LibAddonMenuSoundSlider>=003 LibGPS>=37
+
+FCOAccessibility.lua
+
+; DISCLOSURE:
+; This Add-on is not created by, affiliated with or sponsored by ZeniMax
+; Media Inc. or its affiliates. The Elder Scrolls� and related logos are
+; registered trademarks or trademarks of ZeniMax Media Inc. in the United
+; States and/or other countries. All rights reserved.
+; You can read the full terms at https://account.elderscrollsonline.com/add-on-terms
