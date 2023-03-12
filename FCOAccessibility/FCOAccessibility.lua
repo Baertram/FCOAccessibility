@@ -576,7 +576,7 @@ end
 
 
 local function buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption)
-	if unitPrefix == nil or unitPrefix == "" then return end
+	--if unitPrefix == nil or unitPrefix == "" then return end
 	local newText = unitPrefix
 	if unitDisplayName ~= nil and unitDisplayName ~= "" then
 		newText = (newText == nil and "'" .. unitDisplayName .. '"') or newText .. " '" .. unitDisplayName .. "'"
@@ -599,8 +599,7 @@ local function buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName,
 	end
 end
 
-local function getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText, healthCurrent, healthMax)
-	reticlePlayerToChatText = reticlePlayerToChatText or false
+local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax)
 	local unitPrefix, unitSuffix, unitHealth
 	local unitDisplayName
 
@@ -627,7 +626,7 @@ local function getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText,
 	local isOtherPlayer, isNPC, isCritter, isMonster = false, false, false, false
 
 	--Player characters
-	if unitType == UNIT_TYPE_PLAYER and reticlePlayerToChatText == true then
+	if unitType == UNIT_TYPE_PLAYER then
 		isOtherPlayer = true
 		unitDisplayName = GetUnitDisplayName(CON_RETICLE)
 		local isFriend = IsUnitFriend(CON_RETICLE)
@@ -808,14 +807,18 @@ local function getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText,
 								]]
 								isMonster = true
 								if isCritter == true or difficulty == MONSTER_DIFFICULTY_NONE then
+									if FCOAB.settingsVars.settings.reticleUnitIgnoreCritter == true then
+										return nil, nil, nil, nil, nil
+									end
+
 									unitPrefix = "Critter"
 									isMonster = false
 								elseif difficulty >= MONSTER_DIFFICULTY_EASY and difficulty <= MONSTER_DIFFICULTY_NORMAL then
-									unitPrefix = "Monster"
+									unitPrefix = ""
 								elseif difficulty == MONSTER_DIFFICULTY_HARD then
-									unitPrefix = "HARD monster"
+									unitPrefix = "HARD"
 								elseif difficulty == MONSTER_DIFFICULTY_DEADLY then
-									unitPrefix = "DEADLY monster"
+									unitPrefix = "DEADLY"
 								end
 							end
 						end
@@ -836,9 +839,23 @@ local function getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText,
 			else
 				currentHealthPercent = 0
 			end
-
-			unitHealth = " [" .. tos(currentHealthPercent) .. "%/" ..tos(maxHealth) .. "]"
-			unitPrefix = unitPrefix .. unitHealth
+			unitHealth = "[" .. tos(currentHealthPercent) .. "%/" ..tos(ZO_CommaDelimitDecimalNumber(maxHealth)) .. "]"
+			--[[
+			if unitPrefix == "" then
+				if unitSuffix ~= nil and unitSuffix ~= "" then
+					unitSuffix = unitHealth .. " " .. unitSuffix
+				else
+					unitSuffix = unitHealth
+				end
+			else
+				unitPrefix = unitPrefix .. " " .. unitHealth
+			end
+			]]
+			if unitSuffix ~= nil and unitSuffix ~= "" then
+				unitSuffix = unitHealth .. " " .. unitSuffix
+			else
+				unitSuffix = unitHealth
+			end
 		end
 		if isEngaged == true then
 			if isDead == true then
@@ -852,11 +869,11 @@ local function getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText,
 end
 
 local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue, powerMax, powerEffectiveMax)
+d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
 	--Only in combat!
 	if not IsUnitInCombat(CON_PLAYER) then return end
 	if FCOAB.settingsVars.settings.showReticleOverUnitHealthInChat == false then return end
 
---d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
 	--if unitTag ~= CON_RETICLE then return end 			--Done via event filters already
 	--if not trackedPowerType[powerType] then return end	--Done via event filters already
 
@@ -887,7 +904,7 @@ local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue
 
 	--Output the current reticleOver unit's health to chat
 	--local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, powerValue, powerMax)
-	local unitPrefix = "\'" .. tos(unitName) .. "\' health: " ..tos(healthPercent) .. "%/" .. tos(powerMax)
+	local unitPrefix = "\'" .. tos(unitName) .. "\' health: " ..tos(healthPercent) .. "%/" .. tos(ZO_CommaDelimitDecimalNumber(powerMax))
 	buildUnitChatOutputAndAddToChat(unitPrefix, nil, unitName, nil, nil)
 	--end
 end
@@ -900,7 +917,7 @@ local function reticleUnitData()
 	local reticlePlayerToChatText = settings.reticlePlayerToChatText
 	local showReticleOverUnitHealthInChat = settings.showReticleOverUnitHealthInChat
 
-	if (reticleUnitToChatText == true or reticlePlayerToChatText == true or showReticleOverUnitHealthInChat == true) and reticleOverChangedEventRegistered == false then
+	if reticleOverChangedEventRegistered == false and (reticleUnitToChatText == true or reticlePlayerToChatText == true or showReticleOverUnitHealthInChat == true) then
 		reticleOverLastHealthPercent = 0
 		EM:RegisterForEvent(addonName .. "_RETICLE_OVER_CHANGED", EVENT_RETICLE_TARGET_CHANGED, function(eventId)
 			settings = FCOAB.settingsVars.settings
@@ -927,13 +944,14 @@ local function reticleUnitData()
 				if lastReticle2Chat == 0 or now >= (lastReticle2Chat + reticleToChatDelay) then
 					lastPlayed.reticle2Chat = now
 
-					local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText, nil, nil)
+					local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, nil)
+					if unitPrefix == nil and unitName == nil then return end
 
 					local lastAddedUnitName = lastAddedReticleToChat.name
 					if lastAddedReticleToChat == nil or lastAddedUnitName == nil
 							or (	(unitName ~= nil and lastAddedUnitName ~= unitName)
-								or 	(unitDisplayName ~= nil and lastAddedUnitName ~= unitDisplayName)
-							)
+							or 	(unitDisplayName ~= nil and lastAddedUnitName ~= unitDisplayName)
+					)
 					then
 						lastAddedReticleToChat.name = unitName or unitDisplayName
 						lastAddedReticleToChat.caption = unitCaption
@@ -956,7 +974,7 @@ local function reticleUnitData()
 
 		reticleOverChangedEventRegistered = true
 	else
-		if reticleOverChangedEventRegistered == true then
+		if reticleOverChangedEventRegistered == true and (reticleUnitToChatText == false and reticlePlayerToChatText == false and showReticleOverUnitHealthInChat == false) then
 			reticleOverLastHealthPercent = 0
 			EM:UnregisterForEvent(addonName .. "_RETICLE_OVER_CHANGED", 		EVENT_RETICLE_TARGET_CHANGED)
 			EM:UnregisterForEvent(addonName .. "_EVENT_POWER_UPDATE_HEALTH",	EVENT_POWER_UPDATE)
@@ -1669,17 +1687,31 @@ local function BuildAddonMenu()
 		},
 		{
 			type = "checkbox",
-			name = "Show unit data (enemy, NPC, ...) in chat",
+			name = "Show unit data (enemy, NPC, critter, ...) in chat",
 			tooltip = "Show the currently looked at unit data in the chat",
 			getFunc = function() return settings.reticleUnitToChatText end,
 			setFunc = function(value)
 				settings.reticleUnitToChatText = value
-				outputLAMSettingsChangeToChat(tos(value), "Show unit data (enemy, NPC, ...) in chat")
+				outputLAMSettingsChangeToChat(tos(value), "Show unit data (enemy, NPC, critter, ...) in chat")
 				reticleUnitData()
 			end,
 			default = defaultSettings.reticleUnitToChatText,
 			--disabled = function() false end,
 		},
+		{
+			type = "checkbox",
+			name = "Unit to chat: Hide critters",
+			tooltip = "Do not show any critters (with 1 health) in the chat",
+			getFunc = function() return settings.reticleUnitIgnoreCritter end,
+			setFunc = function(value)
+				settings.reticleUnitIgnoreCritter = value
+				outputLAMSettingsChangeToChat(tos(value), "Unit to chat: Hide critters")
+			end,
+			disabled = function() return not settings.reticleUnitToChatText end,
+			default = defaultSettings.reticleUnitIgnoreCritter,
+			--disabled = function() false end,
+		},
+
 		{
 			type = "checkbox",
 			name = "Show other player data in chat",
@@ -2469,6 +2501,8 @@ local function LoadUserSettings()
 		compassToChatText = true,
 
 		reticleUnitToChatText = true,
+		reticleUnitIgnoreCritter = true,
+
 		reticlePlayerToChatText = true,
 		reticleInteractionToChatText = true,
 
