@@ -2010,8 +2010,24 @@ d("[FCOAB]PostHook SetPlayerWaypointByWorldLocation")
 end
 
 
+local function enableActiveCombatTipsIfDisabled()
+	--Activate combat tips. Set them to "Always show"
+	SetSetting(SETTING_TYPE_ACTIVE_COMBAT_TIP, 0, ACT_SETTING_ALWAYS)
+end
+
 
 local function onPlayerActivated()
+	if FCOAB.settingsVars.settings.combatTipsToChat == true then
+		enableActiveCombatTipsIfDisabled()
+		--Is the addon AccountSettings enabled?
+		if AccountSettings ~= nil then
+			--AccountSettings will switch the settings to other account settings, but starting after 5seconds.
+			--So we wait another +2 after that and change this setting again then
+			local delay = 7000
+			zo_callLater(function() enableActiveCombatTipsIfDisabled() end, delay)
+		end
+	end
+
 	--Auto remove waypoints if reached?
 	runWaypointRemoveUpdates(isWaypointSetAndShouldBeRemovedAutomaticallyByFCOAB(), true)
 
