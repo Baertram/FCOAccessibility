@@ -248,11 +248,19 @@ local function outputLAMSettingsChangeToChat(chatMsg, prefixText)
 end
 
 local function showCombatTipInChat(tipId)
-	if tipId == nil or tipId <= 0 or not FCOAB.settingsVars.settings.combatTipToChat then return end
+	if tipId == nil or tipId <= 0 or
+		not FCOAB.settingsVars.settings.combatTipToChat then return end
+	--Hide ZOs alert? -->Should not be needed for visibly impaired players
+	--ZO_ActiveCombatTips:SetHidden(true)
 	local tipData = combatTips[tipId]
 	if tipData == nil then return end
 
 	addToChatWithPrefix(tipData.label, nil)
+end
+
+local function enableActiveCombatTipsIfDisabled()
+	--Activate combat tips. Set them to "Always show"
+	SetSetting(SETTING_TYPE_ACTIVE_COMBAT_TIP, 0, ACT_SETTING_ALWAYS)
 end
 
 local function getCompassChatText(newText)
@@ -940,8 +948,8 @@ local function BuildAddonMenu()
 
 
 	--LAM 2.0 callback function if the panel was created
-	local FCOLAMPanelCreated
 	--[[
+	local FCOLAMPanelCreated
 	FCOLAMPanelCreated = function(panel)
         if panel ~= FCOAB.SettingsPanel then return end
     end
@@ -1563,6 +1571,9 @@ local function BuildAddonMenu()
 			setFunc = function(value)
 				settings.combatTipToChat = value
 				outputLAMSettingsChangeToChat(tos(value), "Combat: Tip to chat")
+				if value == true then
+					enableActiveCombatTipsIfDisabled()
+				end
 			end,
 			default = defaultSettings.combatTipToChat,
 			--disabled = function() false end,
@@ -2010,12 +2021,6 @@ d("[FCOAB]PostHook SetPlayerWaypointByWorldLocation")
 end
 
 
-local function enableActiveCombatTipsIfDisabled()
-	--Activate combat tips. Set them to "Always show"
-	SetSetting(SETTING_TYPE_ACTIVE_COMBAT_TIP, 0, ACT_SETTING_ALWAYS)
-end
-
-
 local function onPlayerActivated()
 	if FCOAB.settingsVars.settings.combatTipsToChat == true then
 		enableActiveCombatTipsIfDisabled()
@@ -2216,8 +2221,6 @@ local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 	--Combat
 	EM:RegisterForEvent(addonName .. "_EVENT_PLAYER_COMBAT_STATE", 	EVENT_PLAYER_COMBAT_STATE, 	onPlayerCombatState)
 	EM:RegisterForEvent(addonName .. "_EVENT_DISPLAY_ACTIVE_COMBAT_TIP", EVENT_DISPLAY_ACTIVE_COMBAT_TIP, function(_, tipId)
-		--Hide ZOs alert?
-		--ZO_ActiveCombatTips:SetHidden(true)
 		--Chat output for the combat tipId
 		showCombatTipInChat(tipId)
 	end)
