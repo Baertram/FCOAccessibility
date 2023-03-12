@@ -700,7 +700,7 @@ local function getReticleOverUnitDataAndPrepareChatText(reticlePlayerToChatText,
 	elseif unitType == UNIT_TYPE_MONSTER then
 		isOtherPlayer= false
 		local isEngaged = IsUnitActivelyEngaged(CON_RETICLE)
-d(">unitReactColor: " ..tos(unitReactionColortype))
+--d(">unitReactColor: " ..tos(unitReactionColortype))
 		--local companionName = ZO_CachedStrFormat(SI_UNIT_NAME, GetUnitName(CON_COMPANION))
 		--local isMyCompanion = (unitName == companionName and true) or false
 		local isMyCompanion = AreUnitsEqual(CON_COMPANION, CON_RETICLE)
@@ -733,38 +733,38 @@ d(">unitReactColor: " ..tos(unitReactionColortype))
 							UNIT_REACTION_COMPANION = 6
 							]]
 							if unitReaction == UNIT_REACTION_FRIENDLY or unitReaction == UNIT_REACTION_PLAYER_ALLY then
-	d(">friendly")
+	--d(">friendly")
 								if alreadyInteractedNPCNames[unitName] == true or isInteractableMonster == true or unitReactionColortype == UNIT_REACTION_COLOR_NEUTRAL then
 									isNPC = true
 								else
 									--currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
 									if maxHealth <= CON_CRITTER_MAX_HEALTH or unitReactionColortype == UNIT_REACTION_COLOR_NEUTRAL then
 
-	d(">max health below 1000 - Critter?1")
+	--d(">max health below 1000 - Critter?1")
 										isNPC = false
 										isCritter = true
 									else
 										isAttackable = (currentHealth < maxHealth and true) or false
 										if isAttackable == false and (unitCaption ~= nil or unitReactionColortype == UNIT_REACTION_COLOR_FRIENDLY) then
-	d(">not attackable - NPC?1")
+	--d(">not attackable - NPC?1")
 											isNPC = true
 										end
 									end
 								end
 							elseif UNIT_REACTION_HOSTILE and isAttackable == false then
-	d(">hostile")
+	--d(">hostile")
 								if isAttackable == false and not isDead then
-	d(">not attackable - NPC?2")
+	--d(">not attackable - NPC?2")
 									isNPC = true
 								end
 							elseif UNIT_REACTION_NPC_ALLY then
-	d(">NPC ally")
+	--d(">NPC ally")
 
 								isNPC = false
 								if isAttackable == true then
 									--currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
 									if maxHealth <= CON_CRITTER_MAX_HEALTH then
-	d("<attackable, max health < 1000 - Critter?2")
+	--d("<attackable, max health < 1000 - Critter?2")
 										isCritter = true
 									else
 										if unitReactionColortype == UNIT_REACTION_COLOR_HOSTILE then
@@ -787,10 +787,10 @@ d(">unitReactColor: " ..tos(unitReactionColortype))
 									isNPC = true
 								end
 							elseif UNIT_REACTION_NEUTRAL then
-	d(">neutral")
+	--d(">neutral")
 								isAttackable = false
 								if isNPC == false and (alreadyInteractedNPCNames[unitName] == true or isInteractableMonster == true) then
-	d(">>isInteractMonster")
+	--d(">>isInteractMonster")
 									isNPC = true
 								end
 							end
@@ -856,7 +856,7 @@ local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue
 	if not IsUnitInCombat(CON_PLAYER) then return end
 	if FCOAB.settingsVars.settings.showReticleOverUnitHealthInChat == false then return end
 
-d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
+--d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
 	--if unitTag ~= CON_RETICLE then return end 			--Done via event filters already
 	--if not trackedPowerType[powerType] then return end	--Done via event filters already
 
