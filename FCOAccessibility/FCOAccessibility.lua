@@ -2144,12 +2144,12 @@ local function LoadUserSettings()
 		combatStartEndInfo = true,
 
 		combatStartSound = true,
-		combatStartSoundName = "Battleground_InactivityWarning",
-		combatStartSoundRepeat = 2,
+		combatStartSoundName = "Market_PreviewSelected",
+		combatStartSoundRepeat = 3,
 
 		combatEndSound = true,
 		combatEndSoundName = "ActiveCombatTip_Failed",
-		combatEndSoundRepeat = 2,
+		combatEndSoundRepeat = 3,
 
 		combatTipToChat = true,
     }
