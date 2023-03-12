@@ -35,6 +35,7 @@ local CON_SOUND_NONE = soundsRef[CON_NONE]
 
 local CON_PLAYER = "player"
 local CON_RETICLE = "reticleover"
+local CON_COMPANION = "companion"
 
 
 --Addon variables
@@ -588,10 +589,13 @@ local function reticleUnitData()
 				if lastReticle2Chat == 0 or now >= (lastReticle2Chat + reticleToChatDelay) then
 					lastPlayed.reticle2Chat = now
 
-					local unitPrefix
+					local unitPrefix, unitSuffix
 					local unitDisplayName
+
 					local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
 					local unitCaption = zo_strformat(SI_UNIT_NAME, GetUnitCaption(CON_RETICLE))
+					local isDead = IsUnitDead(CON_RETICLE)
+
 					--[[
 						UNIT_TYPE_PLAYER	1
 						UNIT_TYPE_MONSTER 	2
@@ -599,11 +603,58 @@ local function reticleUnitData()
 					local unitType = GetUnitType(CON_RETICLE)
 					--Player characters
 					if unitType == UNIT_TYPE_PLAYER and reticlePlayerToChatText == true then
-						unitDisplayName = GetUnitDisplayName(CON_RETICLE)
 						unitPrefix = "Player"
+
+						local isGrouped = IsUnitGrouped(CON_RETICLE)
+						local class = ZO_CachedStrFormat(SI_UNIT_NAME,GetUnitClass(CON_RETICLE))
+						local race = GetUnitRace(CON_RETICLE)
+						local gender = GetUnitGender(CON_RETICLE)
+						local alliance = GetUnitAlliance(CON_RETICLE)
+						local level = GetUnitLevel(CON_RETICLE)
+						local cp = GetUnitEffectiveChampionPoints(CON_RETICLE)
+						unitDisplayName = GetUnitDisplayName(CON_RETICLE)
+						if isDead  then
+							unitPrefix = unitPrefix .. " (dead)"
+						end
+						if isGrouped then
+							unitPrefix = unitPrefix " (in a group)"
+						end
+						if class then
+							unitSuffix = unitSuffix or ""
+							unitSuffix = unitSuffix .. ", class: " .. class
+						end
+						if race and gender then
+							local raceName = ZO_CachedStrFormat(SI_UNIT_NAME, GetRaceName(gender, race))
+							unitSuffix = unitSuffix or ""
+							unitSuffix = unitSuffix .. ", race: " .. raceName
+						end
+						if level then
+							unitSuffix = unitSuffix or ""
+							if cp and cp > 0 then
+								unitSuffix = unitSuffix .. ", CP: " .. tos(cp)
+							else
+								unitSuffix = unitSuffix .. ", level: " .. tos(level)
+							end
+						end
+						if alliance then
+							unitSuffix = unitSuffix or ""
+							local allianceName = ZO_CachedStrFormat(SI_UNIT_NAME, GetAllianceName(alliance))
+							unitSuffix = unitSuffix .. ", alliance: " .. allianceName
+						end
+
+
 					--Monsters and NPCs
 					elseif unitType == UNIT_TYPE_MONSTER then
-						unitPrefix = "NPC/Monster"
+						local isEngaged = IsUnitActivelyEngaged(CON_RETICLE)
+						local companionName = ZO_CachedStrFormat(SI_UNIT_NAME, GetUnitName(CON_COMPANION))
+						if unitName == companionName then
+							unitPrefix = "My companion"
+						else
+							unitPrefix = "NPC/Monster"
+						end
+						if isEngaged == true then
+							unitPrefix = unitPrefix .. " (in combat)"
+						end
 					end
 
 					if lastAddedReticleToChat == nil or lastAddedReticleToChat.name == nil
@@ -625,6 +676,9 @@ local function reticleUnitData()
 						end
 						if unitCaption ~= nil and unitCaption ~= "" then
 							newText = (newText == nil and ("<" .. unitCaption .. ">")) or newText .. " <" .. unitCaption ..">"
+						end
+						if unitSuffix ~= nil and unitSuffix ~= "" then
+							newText = newText .. " " .. unitSuffix
 						end
 						if newText ~= nil and newText ~= "" then
 							addToChatWithPrefix("Reticle: " .. newText)
@@ -2144,12 +2198,12 @@ local function LoadUserSettings()
 		combatStartEndInfo = true,
 
 		combatStartSound = true,
-		combatStartSoundName = "Market_PreviewSelected",
-		combatStartSoundRepeat = 3,
+		combatStartSoundName = "Tribute_Summary_ProgressBarIncrease",
+		combatStartSoundRepeat = 4,
 
 		combatEndSound = true,
-		combatEndSoundName = "ActiveCombatTip_Failed",
-		combatEndSoundRepeat = 3,
+		combatEndSoundName = "Tribute_Summary_ProgressBarDecrease",
+		combatEndSoundRepeat = 4,
 
 		combatTipToChat = true,
     }
