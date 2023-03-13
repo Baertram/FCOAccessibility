@@ -675,7 +675,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 		end
 
 		local isGrouped = IsUnitGrouped(reticleVar)
-		local settings = FCOAB.settingsvars.settings
+		local settings = FCOAB.settingsVars.settings
 		local class
 		local race
 		local gender
