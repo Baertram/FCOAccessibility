@@ -35,6 +35,7 @@ local CON_SOUND_NONE = soundsRef[CON_NONE]
 
 local CON_PLAYER = "player"
 local CON_RETICLE = "reticleover"
+local CON_RETICLE_PLAYER = "reticleoverplayer"
 local CON_COMPANION = "companion"
 
 local CON_CRITTER_MAX_HEALTH = 1
@@ -225,17 +226,28 @@ local combatTips = {
 local alreadyInteractedNPCNames    = {}
 local reticleOverLastHealthPercent = 0
 local reticleOverChangedEventRegistered = false
+local reticleOverPlayerChangedEventRegistered = false
+
+local hitTargetsUnitIds = {}
+local hitTargetsNames = {}
+FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+FCOAB._hitTargetsNames = hitTargetsNames
 
 --===================== EARLY CALLED game code ==============================================
 
 
 --===================== FUNCTIONS ==============================================
-
+--[[
 local function startsWith(strToSearch, searchFor)
 	if string.find(strToSearch, searchFor, 1, true) ~= nil then
 		return true
 	end
 	return false
+end
+]]
+
+local function getPercent(powerValue, powerMax)
+	return zo_round((powerValue / powerMax) * 100)
 end
 
 local function addToChatWithPrefix(chatMsg, prefixText)
@@ -576,8 +588,8 @@ local function interactionData()
 end
 
 
-local function buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption)
-	--if unitPrefix == nil or unitPrefix == "" then return end
+local function buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption, isReticle)
+	isReticle = isReticle or false
 	local newText = unitPrefix
 	if unitDisplayName ~= nil and unitDisplayName ~= "" then
 		newText = (newText == nil and "'" .. unitDisplayName .. '"') or newText .. " '" .. unitDisplayName .. "'"
@@ -596,25 +608,31 @@ local function buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName,
 		newText = newText .. " " .. unitSuffix
 	end
 	if newText ~= nil and newText ~= "" then
-		addToChatWithPrefix("Reticle: " .. newText)
+		if isReticle == true then
+			newText = "Reticle: " .. newText
+		end
+		addToChatWithPrefix(newText)
 	end
 end
 
-local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax)
+local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax, isPlayer)
+	isPlayer = isPlayer or false
 	local unitPrefix, unitSuffix, unitHealth
 	local unitDisplayName
+	local reticleVar = (isPlayer == true and CON_RETICLE_PLAYER) or  CON_RETICLE
 
-	local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
-	local unitCaption = zo_strformat(SI_UNIT_NAME, GetUnitCaption(CON_RETICLE))
-	local gender = GetUnitGender(CON_RETICLE)
-	local isDead = IsUnitDead(CON_RETICLE)
-	local isAttackable = IsUnitAttackable(CON_RETICLE)
-	local difficulty = GetUnitDifficulty(CON_RETICLE)
-	local unitReaction = GetUnitReaction(CON_RETICLE)
-	local unitReactionColortype = GetUnitReactionColorType(CON_RETICLE)
+	if DoesUnitExist(reticleVar) == false then return end
+
+	local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(reticleVar))
+	local unitCaption = zo_strformat(SI_UNIT_NAME, GetUnitCaption(reticleVar))
+	local isDead = IsUnitDead(reticleVar)
+	local isAttackable = IsUnitAttackable(reticleVar)
+	local difficulty = GetUnitDifficulty(reticleVar)
+	local unitReaction = GetUnitReaction(reticleVar)
+	local unitReactionColortype = GetUnitReactionColorType(reticleVar)
 	local currentHealth, maxHealth = healthCurrent, healthMax
 	if currentHealth == nil or maxHealth == nil then
-		currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
+		currentHealth, maxHealth = GetUnitPower(reticleVar, COMBAT_MECHANIC_FLAGS_HEALTH)
 	end
 
 	local isInteractableMonster = IsGameCameraInteractableUnitMonster()
@@ -623,14 +641,14 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 		UNIT_TYPE_PLAYER	1
 		UNIT_TYPE_MONSTER 	2
 	]]
-	local unitType = GetUnitType(CON_RETICLE)
+	local unitType = GetUnitType(reticleVar)
 	local isOtherPlayer, isNPC, isCritter, isMonster = false, false, false, false
 
 	--Player characters
-	if unitType == UNIT_TYPE_PLAYER then
+	if isPlayer == true and unitType == UNIT_TYPE_PLAYER then
 		isOtherPlayer = true
-		unitDisplayName = GetUnitDisplayName(CON_RETICLE)
-		local isFriend = IsUnitFriend(CON_RETICLE)
+		unitDisplayName = GetUnitDisplayName(reticleVar)
+		local isFriend = IsUnitFriend(reticleVar)
 		if isFriend  then
 			unitPrefix = "Friend"
 		else
@@ -656,14 +674,32 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 			end
 		end
 
-		local isGrouped = IsUnitGrouped(CON_RETICLE)
-		local class = ZO_CachedStrFormat(SI_UNIT_NAME,GetUnitClass(CON_RETICLE))
-		local race = GetUnitRace(CON_RETICLE)
-		local alliance = GetUnitAlliance(CON_RETICLE)
-		local level = GetUnitLevel(CON_RETICLE)
-		local cp = GetUnitEffectiveChampionPoints(CON_RETICLE)
+		local isGrouped = IsUnitGrouped(reticleVar)
+		local settings = FCOAB.settingsvars.settings
+		local class
+		local race
+		local gender
+		local alliance
+		local level
+		local cp
+
+		if settings.reticlePlayerClass == true then
+			class = ZO_CachedStrFormat(SI_UNIT_NAME,GetUnitClass(reticleVar))
+		end
+		if settings.reticlePlayerRace == true then
+			race = GetUnitRace(reticleVar)
+			gender = GetUnitGender(reticleVar)
+		end
+		if settings.reticlePlayerLevel == true then
+			alliance = GetUnitAlliance(reticleVar)
+		end
+		if settings.reticlePlayerAlliance == true then
+			level = GetUnitLevel(reticleVar)
+			cp = GetUnitEffectiveChampionPoints(reticleVar)
+		end
+
 		if isDead == true then
-			if IsUnitBeingResurrected(CON_RETICLE) == true then
+			if IsUnitBeingResurrected(reticleVar) == true then
 				unitPrefix = unitPrefix .. " (actively ressurrected)"
 			else
 				unitPrefix = unitPrefix .. " (dead)"
@@ -672,7 +708,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 		if isGrouped == true then
 			unitPrefix = unitPrefix " .. (in a group)"
 		end
-		if class then
+		if class ~= nil then
 			unitSuffix = unitSuffix or ""
 			unitSuffix = unitSuffix .. ", class: " .. class
 		end
@@ -681,7 +717,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 			unitSuffix = unitSuffix or ""
 			unitSuffix = unitSuffix .. ", race: " .. raceName
 		end
-		if level then
+		if level ~= nil then
 			unitSuffix = unitSuffix or ""
 			if cp and cp > 0 then
 				unitSuffix = unitSuffix .. ", CP: " .. tos(cp)
@@ -689,7 +725,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 				unitSuffix = unitSuffix .. ", level: " .. tos(level)
 			end
 		end
-		if alliance and type(alliance) == "number" then
+		if alliance ~= nil and type(alliance) == "number" then
 			unitSuffix = unitSuffix or ""
 			local allianceName = ZO_CachedStrFormat(SI_UNIT_NAME, GetAllianceName(alliance))
 			unitSuffix = unitSuffix .. ", alliance: " .. allianceName
@@ -697,29 +733,29 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 
 
 	--Monsters and NPCs
-	elseif unitType == UNIT_TYPE_MONSTER then
+	elseif isPlayer == false and unitType == UNIT_TYPE_MONSTER then
 		isOtherPlayer= false
-		local isEngaged = IsUnitActivelyEngaged(CON_RETICLE)
+		local isEngaged = IsUnitActivelyEngaged(reticleVar)
 --d(">unitReactColor: " ..tos(unitReactionColortype))
 		--local companionName = ZO_CachedStrFormat(SI_UNIT_NAME, GetUnitName(CON_COMPANION))
 		--local isMyCompanion = (unitName == companionName and true) or false
-		local isMyCompanion = AreUnitsEqual(CON_COMPANION, CON_RETICLE)
+		local isMyCompanion = AreUnitsEqual(CON_COMPANION, reticleVar)
 		if isMyCompanion == true then
 			unitPrefix = "My companion"
 		else
-			local isInvulnerableGuard = IsUnitInvulnerableGuard(CON_RETICLE)
+			local isInvulnerableGuard = IsUnitInvulnerableGuard(reticleVar)
 			if isInvulnerableGuard == true then
 				unitPrefix = "Invulnerable GUARD"
 			else
-				local isJusticeGuard = IsUnitJusticeGuard(CON_RETICLE)
+				local isJusticeGuard = IsUnitJusticeGuard(reticleVar)
 				if isJusticeGuard == true then
 					unitPrefix = "Justice GUARD"
 				else
-					local isFriendlyFollower = IsUnitFriendlyFollower(CON_RETICLE)
+					local isFriendlyFollower = IsUnitFriendlyFollower(reticleVar)
 					if isFriendlyFollower == true then
 						unitPrefix = "Friendly follower"
 					else
-						local isLiveStock = IsUnitLivestock(CON_RETICLE)
+						local isLiveStock = IsUnitLivestock(reticleVar)
 						if isLiveStock == true then
 							unitPrefix = "Livestock"
 						else
@@ -737,7 +773,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 								if alreadyInteractedNPCNames[unitName] == true or isInteractableMonster == true or unitReactionColortype == UNIT_REACTION_COLOR_NEUTRAL then
 									isNPC = true
 								else
-									--currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
+									--currentHealth, maxHealth = GetUnitPower(reticleVar, COMBAT_MECHANIC_FLAGS_HEALTH)
 									if maxHealth <= CON_CRITTER_MAX_HEALTH or unitReactionColortype == UNIT_REACTION_COLOR_NEUTRAL then
 
 	--d(">max health below 1000 - Critter?1")
@@ -762,7 +798,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 
 								isNPC = false
 								if isAttackable == true then
-									--currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
+									--currentHealth, maxHealth = GetUnitPower(reticleVar, COMBAT_MECHANIC_FLAGS_HEALTH)
 									if maxHealth <= CON_CRITTER_MAX_HEALTH then
 	--d("<attackable, max health < 1000 - Critter?2")
 										isCritter = true
@@ -829,14 +865,14 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 		end
 		--Show monster's health current in %, and max in values?
 		--Died meanwhile?
-		isDead = IsUnitDead(CON_RETICLE)
+		isDead = IsUnitDead(reticleVar)
 		if isMonster == true and isDead == false then
 			local currentHealthPercent = 100
 			if healthCurrent == nil and healthMax == nil then
-				currentHealth, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
+				currentHealth, maxHealth = GetUnitPower(reticleVar, COMBAT_MECHANIC_FLAGS_HEALTH)
 			end
 			if(maxHealth and maxHealth > 0) then
-				currentHealthPercent = zo_round((currentHealth / maxHealth) * 100)
+				currentHealthPercent = getPercent(currentHealth, maxHealth)
 			else
 				currentHealthPercent = 0
 			end
@@ -869,32 +905,91 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 	return unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption
 end
 
+local combatTargetTypesFiltered = {
+	[COMBAT_UNIT_TYPE_OTHER] = false,
+	[COMBAT_UNIT_TYPE_NONE] = false,
+	--Filter the below targets
+	[COMBAT_UNIT_TYPE_PLAYER] = true,
+	[COMBAT_UNIT_TYPE_PLAYER_PET] = true,
+	[COMBAT_UNIT_TYPE_GROUP] = true,
+	[COMBAT_UNIT_TYPE_TARGET_DUMMY] = true,
+	[COMBAT_UNIT_TYPE_PLAYER_COMPANION] = true,
+}
+local actionResultsTracked = {
+	[ACTION_RESULT_DAMAGE] = true,
+	[ACTION_RESULT_CRITICAL_DAMAGE] = true,
+	[ACTION_RESULT_DAMAGE_SHIELDED] = true,
+	[ACTION_RESULT_WRECKING_DAMAGE] = true,
+	[ACTION_RESULT_BLOCKED_DAMAGE] = true,
+	[ACTION_RESULT_PRECISE_DAMAGE] = true,
+}
+
+local function onCombatEvent(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
+	--Only in combat, for non filtered targetTypes, for tracked actionResults, and if the targetUnitId wasn't added before already
+	if IsUnitInCombat(CON_PLAYER) == false or targetUnitId == nil or hitTargetsUnitIds[targetUnitId] ~= nil
+			or combatTargetTypesFiltered[targetType] == true or not actionResultsTracked[result] then
+		return
+	end
+
+	--Which source? Only for player (pets/companions)
+	if 		sourceType == COMBAT_UNIT_TYPE_PLAYER then
+		local targetName = zo_strformat(SI_UNIT_NAME, targetName)
+--d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
+		hitTargetsUnitIds[targetUnitId] = targetName
+		hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
+		hitTargetsNames[targetName][targetUnitId] = true
+	elseif 	sourceType == COMBAT_UNIT_TYPE_PLAYER_PET then
+		local targetName = zo_strformat(SI_UNIT_NAME, targetName)
+--d("[FCOAB]OnCombatEvent-source: pet, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
+		hitTargetsUnitIds[targetUnitId] = targetName
+		hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
+		hitTargetsNames[targetName][targetUnitId] = true
+	elseif 	sourceType == COMBAT_UNIT_TYPE_PLAYER_COMPANION then
+		local targetName = zo_strformat(SI_UNIT_NAME, targetName)
+--d("[FCOAB]OnCombatEvent-source: companion, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
+		hitTargetsUnitIds[targetUnitId] = targetName
+		hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
+		hitTargetsNames[targetName][targetUnitId] = true
+	end
+
+	FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+	FCOAB._hitTargetsNames = hitTargetsNames
+end
+
 local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue, powerMax, powerEffectiveMax)
-	--Only in combat!
-	if IsUnitInCombat(CON_PLAYER) == false then return end
-	if FCOAB.settingsVars.settings.showReticleOverUnitHealthInChat == false then return end
---d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
-
-	--if unitTag ~= CON_RETICLE then return end 			--Done via event filters already
-	--if not trackedPowerType[powerType] then return end	--Done via event filters already
-
-	--if powerType == COMBAT_MECHANIC_FLAGS_HEALTH then --currently the only tracked
-	--Check if the active reticleOver unit is the same as we saved in the OnReticleChanged callback
 	local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
+
+--d("[FCOAB]OnPowerUpdate-unit: " ..tos(unitName) ..", health: " .. tos(powerValue) .. ", max: " ..tos(powerMax))
+
+	--Only in combat, if unit exists, is not dead, is no critter (health == 1) and if the unit exists
+	-->and if the settings to show the health in combat are enabled
+	if FCOAB.settingsVars.settings.showReticleOverUnitHealthInChat == false
+			or DoesUnitExist(CON_RETICLE) == false or IsUnitInCombat(CON_PLAYER) == false or IsUnitDead(CON_RETICLE) or powerValue <= 0 or powerMax == CON_CRITTER_MAX_HEALTH then
+		return
+	end
+
+	--Check if the active reticleOver unit is the same as we saved in the OnReticleChanged callback
+	--local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
 --d(">lastReticle: " ..tos(lastAddedReticleToChat.name) .. ", name: " ..tos(unitName))
+	--Only works if settings got the reticle change enabled, and enabled in combat too
+	--[[
 	if lastAddedReticleToChat.name ~= unitName then
 		reticleOverLastHealthPercent = 0
 		return
 	end
 	--Only update to chat in 10% steps
+
 	local healthPercent = 0
---d(">lastPercent: " ..tos(reticleOverLastHealthPercent) .. ", value: " ..tos(powerValue))
-	if powerValue <= 0 or reticleOverLastHealthPercent == 0 or IsUnitDead(CON_RETICLE) then
+	if reticleOverLastHealthPercent == 0 then
+d("<lastPercent is 0")
 		return
 	else
-		healthPercent = zo_round((powerValue / powerMax) * 100)
+	]]
+	local healthPercent = 0
+	if reticleOverLastHealthPercent ~= 0 then
+		healthPercent = getPercent(powerValue, powerMax)
 		local healthDiff = reticleOverLastHealthPercent - healthPercent
---d(">health%: " ..tos(healthPercent) .. ", diff: " ..tos(healthDiff))
+		--d(">health%: " ..tos(healthPercent) .. ", diff: " ..tos(healthDiff))
 		if healthDiff > 0 then
 			if healthPercent >= 30 then
 				if healthDiff < 10 then
@@ -916,13 +1011,17 @@ local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue
 				end
 			end
 		end
+		--end
+		reticleOverLastHealthPercent = healthPercent
+	else
+		reticleOverLastHealthPercent = getPercent(powerValue, powerMax)
+		healthPercent = reticleOverLastHealthPercent
 	end
-	reticleOverLastHealthPercent = healthPercent
 
 	--Output the current reticleOver unit's health to chat
 	--local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, powerValue, powerMax)
 	local unitPrefix = "\'" .. tos(unitName) .. "\' health: " ..tos(healthPercent) .. "%/" .. tos(ZO_CommaDelimitDecimalNumber(powerMax))
-	buildUnitChatOutputAndAddToChat(unitPrefix, nil, unitName, nil, nil)
+	buildUnitChatOutputAndAddToChat(unitPrefix, nil, unitName, nil, nil, false)
 	--end
 end
 
@@ -933,19 +1032,25 @@ local function reticleUnitData()
 	local reticlePlayerToChatText = settings.reticlePlayerToChatText
 	local showReticleOverUnitHealthInChat = settings.showReticleOverUnitHealthInChat
 
-	if reticleOverChangedEventRegistered == false and (reticleUnitToChatText == true or reticlePlayerToChatText == true or showReticleOverUnitHealthInChat == true) then
+	if reticleOverChangedEventRegistered == false and (reticleUnitToChatText == true or showReticleOverUnitHealthInChat == true) then
 		reticleOverLastHealthPercent = 0
-		EM:RegisterForEvent(addonName .. "_RETICLE_OVER_CHANGED", EVENT_RETICLE_TARGET_CHANGED, function(eventId)
+		EM:RegisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_CHANGED", EVENT_RETICLE_TARGET_CHANGED, function(eventId)
+			--d("[FOCAB]EVENT_RETICLE_TARGET_CHANGED-"..tos(GetUnitName(CON_RETICLE)))
+			local unitName = GetUnitName(CON_RETICLE)
+			if unitName == nil or unitName == "" then return end
+
 			settings = FCOAB.settingsVars.settings
 			reticleUnitToChatText = settings.reticleUnitToChatText
 			reticlePlayerToChatText = settings.reticlePlayerToChatText
 			showReticleOverUnitHealthInChat = settings.showReticleOverUnitHealthInChat
+			local reticleToChatInCombat = settings.reticleToChatInCombat
+			local isInCombat = IsUnitInCombat(CON_PLAYER)
 
-			if showReticleOverUnitHealthInChat == true then
+			if isInCombat == true and showReticleOverUnitHealthInChat == true and DoesUnitExist(CON_RETICLE) and IsUnitDead(CON_RETICLE) == false then
 				--Update the last saved health value of the target below the reticle, as %
 				local health, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
 				if health > 0 and maxHealth > 0 then
-					reticleOverLastHealthPercent = zo_round((health / maxHealth) * 100)
+					reticleOverLastHealthPercent = getPercent(health, maxHealth)
 				else
 					reticleOverLastHealthPercent = 0
 				end
@@ -953,14 +1058,19 @@ local function reticleUnitData()
 				reticleOverLastHealthPercent = 0
 			end
 
-			if reticleUnitToChatText == true or reticlePlayerToChatText == true then
+			--Do not update in combat, unless enabled at the settings
+			if (isInCombat == false or (reticleToChatInCombat == true and isInCombat == true)) and reticleUnitToChatText == true then
 				local now = GetGameTimeMilliseconds()
 				local lastReticle2Chat = lastPlayed.reticle2Chat
 
 				if lastReticle2Chat == 0 or now >= (lastReticle2Chat + reticleToChatDelay) then
 					lastPlayed.reticle2Chat = now
 
-					local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, nil)
+					local unitType = GetUnitType(CON_RETICLE)
+					--Player data with the own event -> EVENT_RETICLE_TARGET_PLAYER_CHANGED
+					if unitType == UNIT_TYPE_PLAYER then return end
+
+					local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, nil, false)
 					if unitPrefix == nil and unitName == nil then return end
 
 					local lastAddedUnitName = lastAddedReticleToChat.name
@@ -972,7 +1082,7 @@ local function reticleUnitData()
 						lastAddedReticleToChat.name = unitName or unitDisplayName
 						lastAddedReticleToChat.caption = unitCaption
 
-						buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption)
+						buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption, true)
 					end
 				end
 			end
@@ -986,17 +1096,76 @@ local function reticleUnitData()
 		EM:AddFilterForEvent(addonName .. "_EVENT_POWER_UPDATE_STAMINA", 	EVENT_POWER_UPDATE, 		REGISTER_FILTER_UNIT_TAG, CON_RETICLE, REGISTER_FILTER_POWER_TYPE, COMBAT_MECHANIC_FLAGS_STAMINA)
 		EM:RegisterForEvent(addonName .. "_EVENT_POWER_UPDATE_MAGICKA", 	EVENT_POWER_UPDATE, 		onPowerUpdate)
 		EM:AddFilterForEvent(addonName .. "_EVENT_POWER_UPDATE_MAGICKA", 	EVENT_POWER_UPDATE, 		REGISTER_FILTER_UNIT_TAG, CON_RETICLE, REGISTER_FILTER_POWER_TYPE, COMBAT_MECHANIC_FLAGS_MAGICKA)
+
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_IS_ERROR, false)
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET, REGISTER_FILTER_IS_ERROR, false)
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", 	EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION, REGISTER_FILTER_IS_ERROR, false)
 		]]
 
 		reticleOverChangedEventRegistered = true
 	else
-		if reticleOverChangedEventRegistered == true and (reticleUnitToChatText == false and reticlePlayerToChatText == false and showReticleOverUnitHealthInChat == false) then
+		if reticleOverChangedEventRegistered == true and (reticleUnitToChatText == false and showReticleOverUnitHealthInChat == false) then
 			reticleOverLastHealthPercent = 0
-			EM:UnregisterForEvent(addonName .. "_RETICLE_OVER_CHANGED", 		EVENT_RETICLE_TARGET_CHANGED)
+			EM:UnregisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_CHANGED",	EVENT_RETICLE_TARGET_CHANGED)
 			EM:UnregisterForEvent(addonName .. "_EVENT_POWER_UPDATE_HEALTH",	EVENT_POWER_UPDATE)
+			--[[
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
+			]]
 			reticleOverChangedEventRegistered = false
 		end
 	end
+
+	if reticleOverPlayerChangedEventRegistered == false and reticlePlayerToChatText == true then
+		EM:RegisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_PLAYER_CHANGED", EVENT_RETICLE_TARGET_PLAYER_CHANGED, function(eventId)
+--d("[FCOAB]EVENT_RETICLE_TARGET_PLAYER_CHANGED-name: " .. tos(GetUnitName(CON_RETICLE_PLAYER)))
+			local unitName = GetUnitName(CON_RETICLE_PLAYER)
+			if unitName == nil or unitName == "" then return end
+
+
+			settings = FCOAB.settingsVars.settings
+			reticlePlayerToChatText = settings.reticlePlayerToChatText
+			local reticleToChatInCombat = settings.reticleToChatInCombat
+			local isInCombat = IsUnitInCombat(CON_PLAYER)
+
+			--Do not update in combat, unless enabled at the settings
+			if (isInCombat == false or (reticleToChatInCombat == true and isInCombat == true)) and reticlePlayerToChatText == true then
+				local now = GetGameTimeMilliseconds()
+				local lastReticle2Chat = lastPlayed.reticle2Chat
+
+				if lastReticle2Chat == 0 or now >= (lastReticle2Chat + reticleToChatDelay) then
+					lastPlayed.reticle2Chat = now
+
+					local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, nil, true)
+					if unitPrefix == nil and unitName == nil then return end
+
+					local lastAddedUnitName = lastAddedReticleToChat.name
+					if lastAddedReticleToChat == nil or lastAddedUnitName == nil
+							or (	(unitName ~= nil and lastAddedUnitName ~= unitName)
+							or 	(unitDisplayName ~= nil and lastAddedUnitName ~= unitDisplayName)
+					)
+					then
+						lastAddedReticleToChat.name = unitName or unitDisplayName
+						lastAddedReticleToChat.caption = unitCaption
+
+						buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption, true)
+					end
+				end
+			end
+		end)
+
+		reticleOverPlayerChangedEventRegistered = true
+	else
+		if reticleOverPlayerChangedEventRegistered == true and reticlePlayerToChatText == false then
+			EM:UnregisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_PLAYER_CHANGED",	EVENT_RETICLE_TARGET_PLAYER_CHANGED)
+			reticleOverPlayerChangedEventRegistered = false
+		end
+	end
+
 end
 
 local function onGroupStatusChange(hasLeft, hasJoined, onUpdate, onUpdateEventPlayerActivated)
@@ -1187,6 +1356,12 @@ end
 
 
 local function onPlayerCombatState(eventId, inCombat)
+	--New combat: Reset the last hit target names and unitIds
+	if inCombat == true then
+		hitTargetsUnitIds = {}
+		hitTargetsNames = {}
+	end
+
 	local settings = FCOAB.settingsVars.settings
 	local combatStartEndInfo = settings.combatStartEndInfo
 
@@ -1741,6 +1916,70 @@ local function BuildAddonMenu()
 			default = defaultSettings.reticlePlayerToChatText,
 			--disabled = function() false end,
 		},
+		{
+			type = "checkbox",
+			name = "Other player's race to chat",
+			tooltip = "Show the currently looked at other player's race in the chat too",
+			getFunc = function() return settings.reticlePlayerRace end,
+			setFunc = function(value)
+				settings.reticlePlayerRace = value
+				outputLAMSettingsChangeToChat(tos(value), "Other player's race to chat")
+			end,
+			default = defaultSettings.reticlePlayerRace,
+			disabled = function() return not settings.reticlePlayerToChatText end,
+		},
+		{
+			type = "checkbox",
+			name = "Other player's class to chat",
+			tooltip = "Show the currently looked at other player's class in the chat too",
+			getFunc = function() return settings.reticlePlayerClass end,
+			setFunc = function(value)
+				settings.reticlePlayerClass = value
+				outputLAMSettingsChangeToChat(tos(value), "Other player's class to chat")
+			end,
+			default = defaultSettings.reticlePlayerClass,
+			disabled = function() return not settings.reticlePlayerToChatText end,
+		},
+		{
+			type = "checkbox",
+			name = "Other player's level or CP to chat",
+			tooltip = "Show the currently looked at other player's level, or Champion Points, in the chat too",
+			getFunc = function() return settings.reticlePlayerLevel end,
+			setFunc = function(value)
+				settings.reticlePlayerLevel = value
+				outputLAMSettingsChangeToChat(tos(value), "Other player's level or CP to chat")
+			end,
+			default = defaultSettings.reticlePlayerLevel,
+			disabled = function() return not settings.reticlePlayerToChatText end,
+		},
+		{
+			type = "checkbox",
+			name = "Other player's alliance to chat",
+			tooltip = "Show the currently looked at other player's alliance in the chat too",
+			getFunc = function() return settings.reticlePlayerAlliance end,
+			setFunc = function(value)
+				settings.reticlePlayerAlliance = value
+				outputLAMSettingsChangeToChat(tos(value), "Other player's alliance to chat")
+			end,
+			default = defaultSettings.reticlePlayerAlliance,
+			disabled = function() return not settings.reticlePlayerToChatText end,
+		},
+
+
+		{
+			type = "checkbox",
+			name = "Reticle to chat: In Combat too",
+			tooltip = "Show the current reticle data in chat if you are in combat too.",
+			getFunc = function() return settings.reticleToChatInCombat end,
+			setFunc = function(value)
+				settings.reticleToChatInCombat = value
+				outputLAMSettingsChangeToChat(tos(value), "Reticle to chat: Only in Combat")
+			end,
+			default = defaultSettings.reticleToChatInCombat,
+			disabled = function() return not settings.reticleUnitToChatText and not settings.reticlePlayerToChatText end
+			--disabled = function() false end,
+		},
+
 
 		{
 			type = "checkbox",
@@ -2034,7 +2273,7 @@ local function BuildAddonMenu()
 			--reference = "MyAddonSlider", -- unique global reference to control (optional)
 			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
 		},
-		
+
 		{
 			type = "checkbox",
 			name    = "Combat end - Play sound",
@@ -2099,7 +2338,7 @@ local function BuildAddonMenu()
 			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
 			--reference = "MyAddonSlider", -- unique global reference to control (optional)
 			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
-		},		
+		},
 	}
 
 	--CM:RegisterCallback("LAM-PanelControlsCreated", FCOLAMPanelCreated)
@@ -2518,8 +2757,14 @@ local function LoadUserSettings()
 
 		reticleUnitToChatText = true,
 		reticleUnitIgnoreCritter = true,
+		reticleToChatInCombat = false,
 
 		reticlePlayerToChatText = true,
+		reticlePlayerLevel = true,
+		reticlePlayerRace = true,
+		reticlePlayerClass = true,
+		reticlePlayerAlliance = true,
+
 		reticleInteractionToChatText = true,
 
 		autoRemoveWaypoint = true,
