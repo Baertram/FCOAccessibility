@@ -224,6 +224,7 @@ local combatTips = {
 
 local alreadyInteractedNPCNames    = {}
 local reticleOverLastHealthPercent = 0
+local reticleOverChangedEventRegistered = false
 
 --===================== EARLY CALLED game code ==============================================
 
@@ -869,10 +870,10 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 end
 
 local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue, powerMax, powerEffectiveMax)
-d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
 	--Only in combat!
-	if not IsUnitInCombat(CON_PLAYER) then return end
+	if IsUnitInCombat(CON_PLAYER) == false then return end
 	if FCOAB.settingsVars.settings.showReticleOverUnitHealthInChat == false then return end
+--d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos(powerMax))
 
 	--if unitTag ~= CON_RETICLE then return end 			--Done via event filters already
 	--if not trackedPowerType[powerType] then return end	--Done via event filters already
@@ -880,27 +881,43 @@ d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos
 	--if powerType == COMBAT_MECHANIC_FLAGS_HEALTH then --currently the only tracked
 	--Check if the active reticleOver unit is the same as we saved in the OnReticleChanged callback
 	local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
+--d(">lastReticle: " ..tos(lastAddedReticleToChat.name) .. ", name: " ..tos(unitName))
 	if lastAddedReticleToChat.name ~= unitName then
 		reticleOverLastHealthPercent = 0
 		return
 	end
 	--Only update to chat in 10% steps
 	local healthPercent = 0
+--d(">lastPercent: " ..tos(reticleOverLastHealthPercent) .. ", value: " ..tos(powerValue))
 	if powerValue <= 0 or reticleOverLastHealthPercent == 0 or IsUnitDead(CON_RETICLE) then
 		return
 	else
 		healthPercent = zo_round((powerValue / powerMax) * 100)
 		local healthDiff = reticleOverLastHealthPercent - healthPercent
+--d(">health%: " ..tos(healthPercent) .. ", diff: " ..tos(healthDiff))
 		if healthDiff > 0 then
-			if healthDiff < 10 then
-				return
+			if healthPercent >= 30 then
+				if healthDiff < 10 then
+					return
+				end
+			else
+				if healthDiff < 5 then
+					return
+				end
 			end
 		else
-			if healthDiff > -10 then
-				return
+			if healthPercent >= 30 then
+				if healthDiff > -10 then
+					return
+				end
+			else
+				if healthDiff > -5 then
+					return
+				end
 			end
 		end
 	end
+	reticleOverLastHealthPercent = healthPercent
 
 	--Output the current reticleOver unit's health to chat
 	--local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, powerValue, powerMax)
@@ -909,7 +926,6 @@ d("[FCOAB]OnPowerUpdate-powerValue: " .. tos(powerValue) .. ", powerMax: " ..tos
 	--end
 end
 
-local reticleOverChangedEventRegistered = false
 
 local function reticleUnitData()
 	local settings = FCOAB.settingsVars.settings
