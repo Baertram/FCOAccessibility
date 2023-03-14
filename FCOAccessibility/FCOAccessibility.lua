@@ -684,11 +684,13 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 		local cp
 
 		if settings.reticlePlayerClass == true then
-			class = ZO_CachedStrFormat(SI_UNIT_NAME,GetUnitClass(reticleVar))
+			class = ZO_CachedStrFormat(SI_UNIT_NAME, GetUnitClass(reticleVar))
 		end
 		if settings.reticlePlayerRace == true then
-			race = GetUnitRace(reticleVar)
+			race = GetUnitRaceId(reticleVar)
 			gender = GetUnitGender(reticleVar)
+
+--d(">race: " ..tos(race) ..", gender: " ..tos(gender))
 		end
 		if settings.reticlePlayerLevel == true then
 			alliance = GetUnitAlliance(reticleVar)
@@ -712,7 +714,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 			unitSuffix = unitSuffix or ""
 			unitSuffix = unitSuffix .. ", class: " .. class
 		end
-		if race ~= nil and gender ~= nil and type(race) == "number" then
+		if race ~= nil and gender ~= nil then
 			local raceName = ZO_CachedStrFormat(SI_UNIT_NAME, GetRaceName(gender, race))
 			unitSuffix = unitSuffix or ""
 			unitSuffix = unitSuffix .. ", race: " .. raceName
@@ -923,6 +925,7 @@ local actionResultsTracked = {
 	[ACTION_RESULT_BLOCKED_DAMAGE] = true,
 	[ACTION_RESULT_PRECISE_DAMAGE] = true,
 }
+
 
 local function onCombatEvent(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
 	--Only in combat, for non filtered targetTypes, for tracked actionResults, and if the targetUnitId wasn't added before already
