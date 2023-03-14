@@ -7,6 +7,15 @@
             <Action name="FCOAB_MOUNT_PASSENGER_MOUNT_DISPLAYNAME">
                 <Down>FCOAB.PassengerMountWithPreferredPlayer()</Down>
             </Action>
+            <Action name="FCOAB_TOGGLE_ACCESSIBILTY_MODE">
+                <Down>FCOAB.ToggleAccessibilityMode()</Down>
+            </Action>
+            <Action name="FCOAB_TOGGLE_ACCESSIBILTY_CHATREADER">
+                <Down>FCOAB.ToggleAccessibilityChatReader()</Down>
+            </Action>
+            <Action name="FCOAB_TOGGLE_ACCESSIBILTY_MENUREADER">
+                <Down>FCOAB.ToggleAccessibilityMenuReader()</Down>
+            </Action>
         </Category>
     </Layer>
 </Bindings>

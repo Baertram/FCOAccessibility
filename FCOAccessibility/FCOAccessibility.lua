@@ -26,7 +26,7 @@ local EM = EVENT_MANAGER
 local soundsRef = SOUNDS
 
 --local game functions
---local iigpm = IsInGamepadPreferredMode
+local iigpm = IsInGamepadPreferredMode
 local gmpw = GetMapPlayerWaypoint
 local gmrp = GetMapRallyPoint
 
@@ -1389,21 +1389,22 @@ local function onPlayerCombatState(eventId, inCombat)
 	end
 end
 
-------------------------------------------------------------------------------------------------------------------------
 
+------------------------------------------------------------------------------------------------------------------------
+-- Keybindings
+------------------------------------------------------------------------------------------------------------------------
 function FCOAB.SavedPreferredPlayerForPassengerMount()
 	local settings = FCOAB.settingsVars.settings
 	--Get the old displayName
 	local preferredGroupMountDisplayName = settings.preferredGroupMountDisplayName
 	local oldPreferredGroupMountDisplayName = preferredGroupMountDisplayName
-	if oldPreferredGroupMountDisplayName == nil then oldPreferredGroupMountDisplayName = "n/a" end
+	if oldPreferredGroupMountDisplayName == nil or oldPreferredGroupMountDisplayName == "" then oldPreferredGroupMountDisplayName = "n/a" end
 
 	--Get the new displayName below the reticle
 	local newDisplayName = GetUnitDisplayName(CON_RETICLE_PLAYER)
-	if newDisplayName ~= nil and newDisplayName ~= "" and newDisplayName ~= myDisplayName then
-		if preferredGroupMountDisplayName ~= nil and newDisplayName == preferredGroupMountDisplayName then return end
-		FCOAB.settingsVars.settings.preferredGroupMountDisplayNam = newDisplayName
-		outputLAMSettingsChangeToChat("\'" .. tos(newDisplayName) .. "\'", "Changed the preferred passenger mount accountName from \'" .. tos(oldPreferredGroupMountDisplayName) .. "\' to ", true)
+	if newDisplayName ~= nil and newDisplayName ~= "" and newDisplayName ~= myDisplayName and newDisplayName ~= oldPreferredGroupMountDisplayName then
+		FCOAB.settingsVars.settings.preferredGroupMountDisplayName = newDisplayName
+		outputLAMSettingsChangeToChat("\'" .. tos(newDisplayName) .. "\' (before: " .. tos(oldPreferredGroupMountDisplayName) .. ")", "Preferred passenger mount accountName", true)
 	end
 end
 
@@ -1449,6 +1450,56 @@ function FCOAB.PassengerMountWithPreferredPlayer()
 			UseMountAsPassenger(preferredGroupMountDisplayName)
 		end
 	end
+end
+
+local function isAccessibilitySettingEnabled(settingId)
+	return GetSetting_Bool(SETTING_TYPE_ACCESSIBILITY, settingId)
+end
+
+local function changeAccessibilitSettingTo(newState, settingId)
+	SetSetting(SETTING_TYPE_ACCESSIBILITY, settingId, newState)
+end
+
+local function isAccessibilityModeEnabled()
+	return isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
+end
+
+--Gamepad mode -> Keyboard mode
+--Keyboard mode -> Gamepad mode + Accessibility mode on
+function FCOAB.ToggleAccessibilityMode()
+	--Check if Accessibility mode is enabled
+	local isAccessiModeEnabled = isAccessibilityModeEnabled()
+
+	--Toggle the Accessibility mode
+	local newState = (isAccessiModeEnabled == true and '0') or '1'
+	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
+	local accessibilityModeStr = (newState == '0' and "Off") or 'On'
+
+	outputLAMSettingsChangeToChat("\'" .. tos(accessibilityModeStr) .. "\'", "- Accessibility Mode", true)
+end
+
+function FCOAB.ToggleAccessibilityChatReader()
+	--Check if Accessibility mode is enabled
+	if not isAccessibilityModeEnabled() then return end
+
+	local isAccessiModeSettingEnabled = isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION)
+	local newState = (isAccessiModeSettingEnabled == true and '0') or '1'
+	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION)
+	local accessibilityModeStr = (newState == '0' and "Off") or 'On'
+
+	outputLAMSettingsChangeToChat("\'" .. tos(accessibilityModeStr) .. "\'", "- Chat Reader of Accessibility Mode", true)
+end
+
+function FCOAB.ToggleAccessibilityMenuReader()
+	--Check if Accessibility mode is enabled
+	if not isAccessibilityModeEnabled() then return end
+
+	local isAccessiModeSettingEnabled = isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_SCREEN_NARRATION)
+	local newState = (isAccessiModeSettingEnabled == true and '0') or '1'
+	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_SCREEN_NARRATION)
+	local accessibilityModeStr = (newState == '0' and "Off") or 'On'
+
+	outputLAMSettingsChangeToChat("\'" .. tos(accessibilityModeStr) .. "\'", "- Menu reader of Accessibility Mode", true)
 end
 
 
