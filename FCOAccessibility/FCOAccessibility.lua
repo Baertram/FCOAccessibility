@@ -26,7 +26,7 @@ local EM = EVENT_MANAGER
 local soundsRef = SOUNDS
 
 --local game functions
-local iigpm = IsInGamepadPreferredMode
+--local iigpm = IsInGamepadPreferredMode
 local gmpw = GetMapPlayerWaypoint
 local gmrp = GetMapRallyPoint
 
@@ -233,18 +233,16 @@ local hitTargetsNames = {}
 FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
 FCOAB._hitTargetsNames = hitTargetsNames
 
---===================== EARLY CALLED game code ==============================================
+
 
 
 --===================== FUNCTIONS ==============================================
---[[
 local function startsWith(strToSearch, searchFor)
 	if string.find(strToSearch, searchFor, 1, true) ~= nil then
 		return true
 	end
 	return false
 end
-]]
 
 local function getPercent(powerValue, powerMax)
 	return zo_round((powerValue / powerMax) * 100)
@@ -253,13 +251,14 @@ end
 local function addToChatWithPrefix(chatMsg, prefixText)
 	if chatMsg == nil or chatMsg == "" then return end
 	prefixText = prefixText or FCOAB.settingsVars.settings.chatAddonPrefix
-	if prefixText ~= nil and prefixText ~= "" then
+	--if prefixText ~= nil and prefixText ~= "" then
 		d(prefixText .. chatMsg)
-	end
+	--end
 end
 
-local function outputLAMSettingsChangeToChat(chatMsg, prefixText)
-	if FCOAB.settingsVars.settings.thisAddonLAMSettingsSetFuncToChat == false then return end
+local function outputLAMSettingsChangeToChat(chatMsg, prefixText, doOverride)
+	doOverride = doOverride or false
+	if FCOAB.settingsVars.settings.thisAddonLAMSettingsSetFuncToChat == false and not doOverride then return end
 	addToChatWithPrefix(chatMsg, strfor(FCOABSettingsPrefixStr, prefixText))
 end
 
@@ -1390,6 +1389,69 @@ local function onPlayerCombatState(eventId, inCombat)
 	end
 end
 
+------------------------------------------------------------------------------------------------------------------------
+
+function FCOAB.SavedPreferredPlayerForPassengerMount()
+	local settings = FCOAB.settingsVars.settings
+	--Get the old displayName
+	local preferredGroupMountDisplayName = settings.preferredGroupMountDisplayName
+	local oldPreferredGroupMountDisplayName = preferredGroupMountDisplayName
+	if oldPreferredGroupMountDisplayName == nil then oldPreferredGroupMountDisplayName = "n/a" end
+
+	--Get the new displayName below the reticle
+	local newDisplayName = GetUnitDisplayName(CON_RETICLE_PLAYER)
+	if newDisplayName ~= nil and newDisplayName ~= "" and newDisplayName ~= myDisplayName then
+		if preferredGroupMountDisplayName ~= nil and newDisplayName == preferredGroupMountDisplayName then return end
+		FCOAB.settingsVars.settings.preferredGroupMountDisplayNam = newDisplayName
+		outputLAMSettingsChangeToChat("\'" .. tos(newDisplayName) .. "\'", "Changed the preferred passenger mount accountName from \'" .. tos(oldPreferredGroupMountDisplayName) .. "\' to ", true)
+	end
+end
+
+function FCOAB.PassengerMountWithPreferredPlayer()
+	--Check if we are grouped
+	if not IsUnitGrouped(CON_PLAYER) then
+		addToChatWithPrefix("You need to be grouped to use the passenger mount!")
+		return
+	end
+
+	local settings = FCOAB.settingsVars.settings
+	local preferredGroupMountDisplayName = settings.preferredGroupMountDisplayName
+	if preferredGroupMountDisplayName == nil then
+		addToChatWithPrefix("You have not set a preferred AccountName for the passenger mount yet!")
+		addToChatWithPrefix("You can either change the account name at the addon settings, or use the keybind to save the current player below the reticle.")
+		return
+	end
+
+	--Check if preferred player is in our group
+	local foundInGroup = false
+	local unitOfPrefferedPlayer
+	for unitIndexOfGroup=1, GetGroupSize(), 1 do
+		if foundInGroup == false then
+			local unitTagOfGroup = GetGroupUnitTagByIndex(unitIndexOfGroup)
+			if unitTagOfGroup ~= nil then
+				--The group member is online and alive and not n combat
+				if IsUnitOnline(unitTagOfGroup) == true and IsUnitDead(unitTagOfGroup) == false and IsUnitInCombat(unitTagOfGroup) == false then
+					local unitDisplayNameOfGroupMember = GetUnitDisplayName(unitTagOfGroup)
+					--We are not checking ourself
+					if unitDisplayNameOfGroupMember ~= myDisplayName and unitDisplayNameOfGroupMember == preferredGroupMountDisplayName then
+						unitOfPrefferedPlayer = unitTagOfGroup
+						foundInGroup = true
+						break
+					end
+				end
+			end
+		end
+	end
+	if foundInGroup == true and unitOfPrefferedPlayer ~= nil then
+		--Check if grouped player is near enough and in our zone
+		if IsUnitInGroupSupportRange(unitOfPrefferedPlayer) then
+			--Mount with the grouped player now
+			UseMountAsPassenger(preferredGroupMountDisplayName)
+		end
+	end
+end
+
+
 --===================== SLASH COMMANDS ==============================================
 --Show a help inside the chat
 local function help()
@@ -1457,7 +1519,6 @@ local function getPreviewDataTab(soundType, repeats)
 	end
 end
 
-
 -- Build the options menu
 local function BuildAddonMenu()
 	local panelData = {
@@ -1487,12 +1548,22 @@ local function BuildAddonMenu()
 
 
 	--LAM 2.0 callback function if the panel was created
-	--[[
-	local FCOLAMPanelCreated
-	FCOLAMPanelCreated = function(panel)
+	local passenderMountEditBoxAutoCompleteCreated = false
+	local FCOABLAMPanelCreated = function(panel)
         if panel ~= FCOAB.SettingsPanel then return end
+--d("[FCOAB]FCOABLAMPanelCreated")
+		if FCOAB_PREFERRED_PASSENGER_MOUNT_EDITBOX ~= nil and passenderMountEditBoxAutoCompleteCreated == false then
+--d(">found FCOAB_PREFERRED_PASSENGER_MOUNT_EDITBOX")
+			local refCtrl = FCOAB_PREFERRED_PASSENGER_MOUNT_EDITBOX
+			local editControlGroup = ZO_EditControlGroup:New()
+			FCOAB.passengerMountDisplayNameEditControlGroup = editControlGroup
+			local autoComplete = ZO_AutoComplete:New(refCtrl.editbox, { AUTO_COMPLETE_FLAG_ALL }, { AUTO_COMPLETE_FLAG_GUILD_NAMES }, AUTO_COMPLETION_ONLINE_OR_OFFLINE, MAX_AUTO_COMPLETION_RESULTS)
+			FCOAB.passengerMountDisplayNameAutoComplete = autoComplete
+			editControlGroup:AddEditControl(refCtrl.editbox, autoComplete)
+
+			passenderMountEditBoxAutoCompleteCreated = true
+		end
     end
-    ]]
 
 	local optionsTable = {    -- BEGIN OF OPTIONS TABLE
 
@@ -2342,11 +2413,47 @@ local function BuildAddonMenu()
 			--reference = "MyAddonSlider", -- unique global reference to control (optional)
 			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
 		},
+
+
+		--==============================================================================
+		{
+			type = 'header',
+			name = "Passenger mount",
+		},
+		{
+			type = "editbox",
+			name = "Passenger mount: Preferred account name", -- or string id or function returning a string
+			tooltip = "Enter the @AccountName for the account that you prefer to ride as a passender with. The AccountName must start with a @! If you start to type an auto completion will show you the valid @AccountNames of your friends list, group and guilds you are a member of. Complete a possible name with the tabulator key. If more than 1 possibl entries exist you can use the up/down keys to switch between the possible names.", -- or string id or function returning a string (optional)
+			getFunc = function() return settings.preferredGroupMountDisplayName end,
+			setFunc = function(value)
+				--[[
+				if value ~= "" then
+					if startsWith(value, "@") == false then value = "@" .. value end
+				end
+				if value == myDisplayName then value = "" end
+				if value == "@" then value = "" end
+				]]
+				settings.preferredGroupMountDisplayName = value
+				outputLAMSettingsChangeToChat(tos(value), "Passenger mount: Preferred account name")
+			end,
+			isMultiline = false, -- boolean (optional)
+			isExtraWide = false, -- boolean (optional)
+			maxChars = 50, -- number (optional)
+			--textType = TEXT_TYPE_ALL, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
+			width = "full", -- or "half" (optional)
+			--disabled = function() return false end, -- or boolean (optional)
+			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = "", -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			reference = "FCOAB_PREFERRED_PASSENGER_MOUNT_EDITBOX" -- unique global reference to control (optional)
+		},
+
 	}
 
-	--CM:RegisterCallback("LAM-PanelControlsCreated", FCOLAMPanelCreated)
 	LAM:RegisterOptionControls(addonName, optionsTable)
+	CM:RegisterCallback("LAM-PanelControlsCreated", FCOABLAMPanelCreated)
 end
+
 
 --==============================================================================
 --============================== END SETTINGS ==================================
@@ -2793,6 +2900,8 @@ local function LoadUserSettings()
 		combatTipToChat = true,
 
 		showReticleOverUnitHealthInChat = true,
+
+		preferredGroupMountDisplayName = nil,
     }
 	local defaults = FCOAB.settingsVars.defaults
 
@@ -2833,6 +2942,7 @@ local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 
 	LAM = LibAddonMenu2
 	GPS = LibGPS3
+
 
 	--SavedVariables
 	LoadUserSettings()
@@ -2884,8 +2994,3 @@ end
 --- Call the start function for this addon to register events etc.
 --------------------------------------------------------------------------------
 FCOAccessibility_Initialized()
-
-
-
---Mount on multi mount:
---/tb UseMountAsPassenger("@Zardek-TESO")

@@ -8,6 +8,9 @@
 ## DependsOn: LibAddonMenu-2.0>=34 LibAddonMenuSoundSlider>=003 LibGPS>=37
 
 FCOAccessibility.lua
+Bindings/Bindings.lua
+Bindings/Bindings.xml
+
 
 ; DISCLOSURE:
 ; This Add-on is not created by, affiliated with or sponsored by ZeniMax
