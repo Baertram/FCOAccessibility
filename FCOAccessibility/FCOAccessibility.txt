@@ -2,7 +2,7 @@
 ## Author: Baertram
 ## Version: 0.3
 ## AddOnVersion: 000030
-## APIVersion: 101036 101037
+## APIVersion: 101037 101038
 ## Description: An accessibility helper addon, especially for visually impaired players
 ## SavedVariables: FCOAccessibility_Settings
 ## DependsOn: LibAddonMenu-2.0>=34 LibAddonMenuSoundSlider>=003 LibGPS>=37
