@@ -7,7 +7,26 @@
 FCOAB = {}
 local FCOAB = FCOAB
 
+--Addon variables
+FCOAB.addonVars                            = {}
+FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
+FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
+FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
+FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
+FCOAB.addonVars.addonVersionOptions        = '0.6' -- version shown in the settings panel
+FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
+FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
+FCOAB.addonVars.gAddonLoaded               = false
+local addonVars                            = FCOAB.addonVars
+local addonName                            = addonVars.gAddonName
 
+--Libraries
+-- Create the addon settings menu
+local LAM = LibAddonMenu2
+local FCOABSettingsPrefixStr = addonName .. " setting %q changed to: "
+local GPS = LibGPS3
+
+--ESO game variables
 local myDisplayName = GetDisplayName()
 
 --local lua and game functions
@@ -17,7 +36,8 @@ local tsort = table.sort
 local strfor = string.format
 
 local atan2 = math.atan2
-local ROTATION_OFFSET = 3 * ZO_HALF_PI
+local deg = math.deg
+local pi = math.pi
 
 
 --Local game global speed up variables
@@ -26,7 +46,7 @@ local EM = EVENT_MANAGER
 local soundsRef = SOUNDS
 
 --local game functions
-local iigpm = IsInGamepadPreferredMode
+--local iigpm = IsInGamepadPreferredMode
 local gmpw = GetMapPlayerWaypoint
 local gmrp = GetMapRallyPoint
 
@@ -40,28 +60,33 @@ local CON_COMPANION = "companion"
 
 local CON_CRITTER_MAX_HEALTH = 1
 
+--Chat output priroties. Hgher values will be shown more early
+local CON_PRIO_CHAT_LOW = 					1
+local CON_PRIO_CHAT_MEDIUM = 				2
+local CON_PRIO_CHAT_HIGH = 					3
+local CON_PRIO_CHAT_COMBAT_ENEMY_HEALTH =	50
+local CON_PRIO_CHAT_COMBAT_YOUR_HEALTH =	51
+local CON_PRIO_CHAT_COMBAT_TIP =			59
+--[[
+local possibleChatPriorities = {
+	CON_PRIO_CHAT_LOW,
+	CON_PRIO_CHAT_MEDIUM,
+	CON_PRIO_CHAT_HIGH,
+	CON_PRIO_CHAT_COMBAT_ENEMY_HEALTH,
+	CON_PRIO_CHAT_COMBAT_YOUR_HEALTH,
+	CON_PRIO_CHAT_COMBAT_TIP,
+}
+local chatPriorityToDelay    = {
+	[CON_PRIO_CHAT_LOW]					= 20, --chat high delay
+	[CON_PRIO_CHAT_MEDIUM]				= 10, --chat medium delay
+	[CON_PRIO_CHAT_HIGH]				= 5, --chat small delay
+	[CON_PRIO_CHAT_COMBAT_ENEMY_HEALTH]	= 1, --very small delay
+	[CON_PRIO_CHAT_COMBAT_YOUR_HEALTH]	= 2, --really small delay
+	[CON_PRIO_CHAT_COMBAT_TIP] 			= 0, --no delay
+}
+local chatOutputQueue        = {}
+]]
 
---Addon variables
-FCOAB.addonVars                            = {}
-FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
-FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
-FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
-FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '0.02' -- version shown in the settings panel
-FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
-FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
-FCOAB.addonVars.gAddonLoaded               = false
-local addonVars                            = FCOAB.addonVars
-local addonName                            = addonVars.gAddonName
-
---Libraries
--- Create the addon settings menu
-local LAM = LibAddonMenu2
-local FCOABSettingsPrefixStr = addonName .. " setting %q changed to: "
-
-local GPS = LibGPS3
-
---Original variables
 
 --Control names of ZO* standard controls etc.
 FCOAB.zosVars                              = {}
@@ -188,6 +213,7 @@ local lastPlayed = {
 	reticle2Chat = 0,
 	reticleInteraction2Chat = 0,
 }
+local lastDistanceToGroupLeader = 0
 
 local lastAddedToChat
 local compassToChatDelay = 250
@@ -230,36 +256,146 @@ local reticleOverPlayerChangedEventRegistered = false
 
 local hitTargetsUnitIds = {}
 local hitTargetsNames = {}
-FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
-FCOAB._hitTargetsNames = hitTargetsNames
+--FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+--FCOAB._hitTargetsNames = hitTargetsNames
 
-
+local hadLastCombatAnyChatMessage = false
+local wasNarrationQueueCleared = false
 
 
 --===================== FUNCTIONS ==============================================
+--[[
 local function startsWith(strToSearch, searchFor)
 	if string.find(strToSearch, searchFor, 1, true) ~= nil then
 		return true
 	end
 	return false
 end
+]]
 
 local function getPercent(powerValue, powerMax)
 	return zo_round((powerValue / powerMax) * 100)
 end
 
+--[[
+local function getPrioChatTextsAndOutputSorted(priority)
+	if priority == nil then return end
+
+	FCOAB._chatOutputByPrioSorted = {}
+	FCOAB._chatOutputQueue = chatOutputQueue
+	FCOAB._chatOutputResults = {}
+
+
+	local chatOutputByPrio = chatOutputQueue[priority]
+	if chatOutputByPrio ~= nil and NonContiguousCount(chatOutputByPrio) > 0 then
+		local chatOutputByPrioSorted = {}
+		for timeStamp, _ in pairs(chatOutputByPrio) do
+			chatOutputByPrioSorted[#chatOutputByPrioSorted + 1] = timeStamp
+		end
+		table.sort(chatOutputByPrioSorted)
+		if chatOutputByPrioSorted ~= nil and #chatOutputByPrioSorted > 0 then
+			for _, timeStamp in ipairs(chatOutputByPrioSorted) do
+				--d(chatOutputByPrio[timeStamp])
+				--chatOutputByPrio[timeStamp] = nil
+				tins(FCOAB._chatOutputResults, chatOutputByPrio[timeStamp])
+			end
+		end
+		FCOAB._chatOutputByPrioSorted[priority] = chatOutputByPrioSorted
+	end
+end
+
+local function doPriorizedChatOutput()
+	for _, priorityForOutput in ipairs(possibleChatPriorities) do
+		getPrioChatTextsAndOutputSorted(priorityForOutput)
+	end
+end
+FCOAB.DoPriorizedChatOutput = doPriorizedChatOutput
+
+
+local function priorizeChatOutput(chatMessage, priority)
+	chatOutputQueue[priority] = chatOutputQueue[priority] or {}
+	chatOutputQueue[priority][GetGameTimeMilliseconds()] = chatMessage
+end
+
+local function addToChatWithPrefix(chatMsg, prefixText, priority, adHoc)
+	if chatMsg == nil or chatMsg == "" then return end
+	prefixText = prefixText or FCOAB.settingsVars.settings.chatAddonPrefix
+	priority = priority or CON_PRIO_CHAT_LOW
+	adHoc = adHoc or false
+	if priority == CON_PRIO_CHAT_COMBAT_TIP then adHoc = true end
+
+	--if prefixText ~= nil and prefixText ~= "" then
+	if adHoc == true then
+		d(prefixText .. chatMsg)
+	else
+		local delay = chatPriorityToDelay[priority]
+		zo_callLater(function()
+			priorizeChatOutput(prefixText .. chatMsg, priority)
+		end, delay)
+	end
+	--end
+end
+]]
+
 local function addToChatWithPrefix(chatMsg, prefixText)
 	if chatMsg == nil or chatMsg == "" then return end
 	prefixText = prefixText or FCOAB.settingsVars.settings.chatAddonPrefix
+	--if priority == CON_PRIO_CHAT_COMBAT_TIP then adHoc = true end
+
 	--if prefixText ~= nil and prefixText ~= "" then
-		d(prefixText .. chatMsg)
+	d(prefixText .. chatMsg)
 	--end
 end
+
 
 local function outputLAMSettingsChangeToChat(chatMsg, prefixText, doOverride)
 	doOverride = doOverride or false
 	if FCOAB.settingsVars.settings.thisAddonLAMSettingsSetFuncToChat == false and not doOverride then return end
 	addToChatWithPrefix(chatMsg, strfor(FCOABSettingsPrefixStr, prefixText))
+end
+
+local function enableActiveCombatTipsIfDisabled()
+	--Activate combat tips. Set them to "Always show"
+	SetSetting(SETTING_TYPE_ACTIVE_COMBAT_TIP, 0, ACT_SETTING_ALWAYS)
+end
+
+local function isAccessibilitySettingEnabled(settingId)
+	return GetSetting_Bool(SETTING_TYPE_ACCESSIBILITY, settingId)
+end
+
+local function changeAccessibilitSettingTo(newState, settingId)
+	SetSetting(SETTING_TYPE_ACCESSIBILITY, settingId, newState)
+end
+
+local function isAccessibilityModeEnabled()
+	return isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
+end
+
+--[[
+local function directlyReadOrAddToChat(msgText, prio)
+	--Directly play the message so there is no delay!
+	if isAccessibilityModeEnabled() and isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION) then
+		--Using this somehow makes the chat reader stop all of sudden in fight
+		RequestReadTextChatToClient(msgText)
+	else
+		addToChatWithPrefix(msgText, nil, prio)
+	end
+end
+]]
+
+local function playSoundLoopNow(soundToPlay, soundRepeats)
+	local soundName = soundNamesInternal[soundToPlay]
+--d("[FCOAB]PlaySound: " ..tos(soundName) .. ", volumeIncrease: " ..tos(soundRepeats))
+	if not soundToPlay or not soundsRef[soundName] then return false end
+	soundRepeats = soundRepeats or 1
+	local wasPlayed = false
+    for i=1, soundRepeats, 1 do
+		--Play the sound (multiple times will play it louder)
+		PlaySound(soundsRef[soundName])
+        wasPlayed = true
+	end
+--d("<wasPlayed: " ..tos(wasPlayed))
+    return wasPlayed
 end
 
 local function showCombatTipInChat(tipId)
@@ -269,13 +405,19 @@ local function showCombatTipInChat(tipId)
 	--ZO_ActiveCombatTips:SetHidden(true)
 	local tipData = combatTips[tipId]
 	if tipData == nil then return end
+	hadLastCombatAnyChatMessage = true
 
-	addToChatWithPrefix(tipData.label, nil)
-end
+	--directlyReadOrAddToChat(tipData.label, CON_PRIO_CHAT_COMBAT_TIP)
+	addToChatWithPrefix(tipData.label, nil, CON_PRIO_CHAT_COMBAT_TIP)
 
-local function enableActiveCombatTipsIfDisabled()
-	--Activate combat tips. Set them to "Always show"
-	SetSetting(SETTING_TYPE_ACTIVE_COMBAT_TIP, 0, ACT_SETTING_ALWAYS)
+	local settings = FCOAB.settingsVars.settings
+	if settings.combatTipSound == true then
+		local soundToPlay = settings.combatTipSoundName[tipId]
+		local soundRepeats = settings.combatTipSoundRepeat[tipId]
+		if soundToPlay ~= nil and soundRepeats ~= nil then
+			playSoundLoopNow(soundToPlay, soundRepeats)
+		end
+	end
 end
 
 local function getCompassChatText(newText)
@@ -315,20 +457,6 @@ local function getCompassChatText(newText)
 	return compassStr .. ": "
 end
 
-local function playSoundLoopNow(soundToPlay, soundRepeats)
-	local soundName = soundNamesInternal[soundToPlay]
---d("[FCOAB]PlaySound: " ..tos(soundName) .. ", volumeIncrease: " ..tos(soundRepeats))
-	if not soundToPlay or not soundsRef[soundName] then return false end
-	soundRepeats = soundRepeats or 1
-	local wasPlayed = false
-    for i=1, soundRepeats, 1 do
-		--Play the sound (multiple times will play it louder)
-		PlaySound(soundsRef[soundName])
-        wasPlayed = true
-	end
---d("<wasPlayed: " ..tos(wasPlayed))
-    return wasPlayed
-end
 
 local function hasWaypoint()
 	local offsetX, offsetY = gmpw()
@@ -503,7 +631,16 @@ end
 
 local function OnTryHandlingInteraction(reticleObj, interactionPossible, currentFrameTimeSeconds)
 	if not interactionPossible then return false end
-	if FCOAB.settingsVars.settings.reticleInteractionToChatText == false then return false end
+	local settings = FCOAB.settingsVars.settings
+	if settings.reticleInteractionToChatText == false then return false end
+
+	local reticleToChatInCombat = settings.reticleToChatInCombat
+	local isInCombat = IsUnitInCombat(CON_PLAYER)
+	if isInCombat == true and reticleToChatInCombat == false then return end
+
+	local reticleToChatInteractionDisableInGroup = settings.reticleToChatInteractionDisableInGroup
+	local isGrouped = IsUnitGrouped(CON_PLAYER)
+	if isGrouped == true and reticleToChatInteractionDisableInGroup == true then return end
 
 	local now = GetGameTimeMilliseconds()
 	local lastReticleInteraction2Chat = lastPlayed.reticleInteraction2Chat
@@ -511,6 +648,11 @@ local function OnTryHandlingInteraction(reticleObj, interactionPossible, current
 		lastPlayed.reticleInteraction2Chat = now
 
 		local action, interactableName, interactionBlocked, isOwned, additionalInteractInfo, context, contextLink, isCriminalInteract = GetGameCameraInteractableActionInfo()
+		if interactionBlocked == true then
+			lastPlayed.reticleInteraction2Chat = 0
+			return
+		end --Do not show BLOCKED messages
+
 		--if additionalInteractInfo == ADDITIONAL_INTERACT_INFO_FISHING_NODE and not interactionBlocked then
 		if action == nil then
 			lastAddedInteractionReticleToChat = {
@@ -707,7 +849,7 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 			end
 		end
 		if isGrouped == true then
-			unitPrefix = unitPrefix " .. (in a group)"
+			unitPrefix = unitPrefix .. " (in a group)"
 		end
 		if class ~= nil then
 			unitSuffix = unitSuffix or ""
@@ -925,7 +1067,7 @@ local actionResultsTracked = {
 	[ACTION_RESULT_PRECISE_DAMAGE] = true,
 }
 
-
+--[[
 local function onCombatEvent(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
 	--Only in combat, for non filtered targetTypes, for tracked actionResults, and if the targetUnitId wasn't added before already
 	if IsUnitInCombat(CON_PLAYER) == false or targetUnitId == nil or hitTargetsUnitIds[targetUnitId] ~= nil
@@ -957,6 +1099,7 @@ local function onCombatEvent(eventId, result, isError, abilityName, abilityGraph
 	FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
 	FCOAB._hitTargetsNames = hitTargetsNames
 end
+]]
 
 local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue, powerMax, powerEffectiveMax)
 	local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
@@ -1022,8 +1165,10 @@ d("<lastPercent is 0")
 
 	--Output the current reticleOver unit's health to chat
 	--local unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption = getReticleOverUnitDataAndPrepareChatText(nil, powerValue, powerMax)
-	local unitPrefix = "\'" .. tos(unitName) .. "\' health: " ..tos(healthPercent) .. "%/" .. tos(ZO_CommaDelimitDecimalNumber(powerMax))
-	buildUnitChatOutputAndAddToChat(unitPrefix, nil, unitName, nil, nil, false)
+	local unitPrefix = "\'" .. tos(unitName) .. "\' " ..tos(healthPercent) .. "%" -- .. "/" .. tos(ZO_CommaDelimitDecimalNumber(powerMax))
+	--directlyReadOrAddToChat(unitPrefix, CON_PRIO_CHAT_COMBAT_TIP)
+	buildUnitChatOutputAndAddToChat(unitPrefix, nil, nil, nil, nil, false)
+	hadLastCombatAnyChatMessage = true
 	--end
 end
 
@@ -1045,6 +1190,10 @@ local function reticleUnitData()
 			reticleUnitToChatText = settings.reticleUnitToChatText
 			reticlePlayerToChatText = settings.reticlePlayerToChatText
 			showReticleOverUnitHealthInChat = settings.showReticleOverUnitHealthInChat
+
+			local reticleToChatUnitDisableInGroup = settings.reticleToChatUnitDisableInGroup
+			local isGrouped = IsUnitGrouped(CON_PLAYER)
+
 			local reticleToChatInCombat = settings.reticleToChatInCombat
 			local isInCombat = IsUnitInCombat(CON_PLAYER)
 
@@ -1061,7 +1210,10 @@ local function reticleUnitData()
 			end
 
 			--Do not update in combat, unless enabled at the settings
-			if (isInCombat == false or (reticleToChatInCombat == true and isInCombat == true)) and reticleUnitToChatText == true then
+			if (reticleUnitToChatText == true and
+					(isInCombat == false or (reticleToChatInCombat == true and isInCombat == true)) and
+					(isGrouped == false or (reticleToChatUnitDisableInGroup == false and isGrouped == true))
+			) then
 				local now = GetGameTimeMilliseconds()
 				local lastReticle2Chat = lastPlayed.reticle2Chat
 
@@ -1085,6 +1237,7 @@ local function reticleUnitData()
 						lastAddedReticleToChat.caption = unitCaption
 
 						buildUnitChatOutputAndAddToChat(unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption, true)
+						hadLastCombatAnyChatMessage = true
 					end
 				end
 			end
@@ -1131,11 +1284,18 @@ local function reticleUnitData()
 
 			settings = FCOAB.settingsVars.settings
 			reticlePlayerToChatText = settings.reticlePlayerToChatText
+
+			local reticleToChatPlayerDisableInGroup = settings.reticleToChatPlayerDisableInGroup
+			local isGrouped = IsUnitGrouped(CON_PLAYER)
+
 			local reticleToChatInCombat = settings.reticleToChatInCombat
 			local isInCombat = IsUnitInCombat(CON_PLAYER)
 
 			--Do not update in combat, unless enabled at the settings
-			if (isInCombat == false or (reticleToChatInCombat == true and isInCombat == true)) and reticlePlayerToChatText == true then
+			if (reticlePlayerToChatText == true and
+					(isInCombat == false or (reticleToChatInCombat == true and isInCombat == true)) and
+					(isGrouped == false or (reticleToChatPlayerDisableInGroup == false and isGrouped == true))
+			) then
 				local now = GetGameTimeMilliseconds()
 				local lastReticle2Chat = lastPlayed.reticle2Chat
 
@@ -1215,7 +1375,7 @@ d(">dotProduct: " ..tos(dot_product) .. "/v_magni: " ..tos(v_magnitude) .. ", d_
 	-- calculate angle between vectors in radians
 	local angle_radians = math.acos(dot_product / (v_magnitude * d_magnitude))
 	if angle_radians < 0 then
-		angle_radians = angle_radians + 2 * math.pi
+		angle_radians = angle_radians + 2 * pi
 	end
 
 	-- convert angle to degrees
@@ -1227,16 +1387,16 @@ d("<<====================<<")
 	--using radian values and changing it to degrees in the end. if value is above 360° it will be subtracted by 360 again
 	local opp = playerNormY - destNormY
 	local adj = destNormX - playerNormX
-	local angle_radians = math.atan2(opp, adj)
-	angle_radians = angle_radians - math.pi / 2
+	local angle_radians = atan2(opp, adj)
+	angle_radians = angle_radians - pi / 2
 	if angle_radians < 0 then
-		angle_radians = angle_radians + 2 * math.pi
+		angle_radians = angle_radians + 2 * pi
 	end
 
 	local heading = GetPlayerCameraHeading()
-	local rotateHeading = angle_radians + ((2 * math.pi) - heading)
+	local rotateHeading = angle_radians + ((2 * pi) - heading)
 
-	local angle_degrees = math.deg(rotateHeading)
+	local angle_degrees = deg(rotateHeading)
 	if angle_degrees > 360 then angle_degrees = angle_degrees - 360 end
 
 	-- check if angle is smaller than threshold 20°
@@ -1253,19 +1413,6 @@ d("<<====================<<")
 		return false
 	end
 end
-
---[[
-FCOAB.testLookingAtGroup = function(groupIndex)
-	if groupIndex == nil or groupIndex == "" then return end
-	if not IsUnitGrouped(CON_PLAYER) then return end
-	local unitTag = GetGroupUnitTagByIndex(groupIndex)
-	local x, y = GetMapPlayerPosition(unitTag)
-	local isLookingAt = isPlayerLookingAtUnit(x, y)
-	d("[FCOAB]isLookingAt tag \'" .. tos(unitTag) .. "\': " ..tos(isLookingAt))
-	return isLookingAt
-end
-]]
-
 
 
 local function checkGroupLeaderPos()
@@ -1332,8 +1479,8 @@ local function checkGroupLeaderPos()
 			lastPlayed.groupLeader = now
 			playSoundLoopNow(settings.groupLeaderSoundName, settings.groupLeaderSoundRepeat)
 
-			if settings.groupLeaderDistanceToChat == true then
-				addToChatWithPrefix("Distance to group leader: ", tos(distToGroupLeader))
+			if settings.groupLeaderDistanceToChat == true and (lastDistanceToGroupLeader == 0 or lastDistanceToGroupLeader ~= distToGroupLeader) then
+				addToChatWithPrefix("Distance to group leader: " .. tos(distToGroupLeader))
 			end
 		end
 	end
@@ -1356,22 +1503,32 @@ runGroupLeaderUpdates = function (doEnable, forced)
 end
 
 
-
 local function onPlayerCombatState(eventId, inCombat)
 	--New combat: Reset the last hit target names and unitIds
+	local settings = FCOAB.settingsVars.settings
 	if inCombat == true then
 		hitTargetsUnitIds = {}
 		hitTargetsNames = {}
+		hadLastCombatAnyChatMessage = false
+		wasNarrationQueueCleared = false
+	else
+		--Delete open chat text messages about combat (might delete other chat messages too)
+		if isAccessibilityModeEnabled() and isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION) == true then
+			if not wasNarrationQueueCleared and hadLastCombatAnyChatMessage == true and (settings.showReticleOverUnitHealthInChat == true or settings.combatTipToChat == true) then
+				ClearNarrationQueue(NARRATION_TYPE_TEXT_CHAT)
+				wasNarrationQueueCleared = true
+			end
+		end
 	end
 
-	local settings = FCOAB.settingsVars.settings
 	local combatStartEndInfo = settings.combatStartEndInfo
 
 	if combatStartEndInfo == true then
-		local yourHealth = 		GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_HEALTH)
-		local yourMagicka = 	GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_MAGICKA)
-		local yourStamina = 	GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_STAMINA)
-		local yourUltimate = 	GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_ULTIMATE)
+		local yourHealth, healthMax = 					GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_HEALTH)
+		local yourMagicka, magickaMax = 				GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_MAGICKA)
+		local yourStamina, staminaMax = 				GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_STAMINA)
+		local yourUltimate, ultimateMax = 				GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_ULTIMATE, HOTBAR_CATEGORY_PRIMARY)
+		local yourUltimateBackbar, ultimateMaxBackbar = GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_ULTIMATE, HOTBAR_CATEGORY_BACKUP)
 		--Player got into combat
 		if inCombat == true then
 			if settings.combatStartSound then
@@ -1385,7 +1542,13 @@ local function onPlayerCombatState(eventId, inCombat)
 			end
 			addToChatWithPrefix("COMBAT END!")
 		end
-		addToChatWithPrefix(strfor("Your health %s, magicka %s, stamina %s, ultimate %s", tos(yourHealth), tos(yourMagicka), tos(yourStamina), tos(yourUltimate)))
+		local healthPercent = 	getPercent(yourHealth, healthMax)
+		local magickaPercent = 	getPercent(yourMagicka, magickaMax)
+		local staminaPercent = 	getPercent(yourStamina, staminaMax)
+		local ultimatePrimaryPercent = 	getPercent(yourUltimate, ultimateMax)
+		local ultimateBackupPercent = 	getPercent(yourUltimateBackbar, ultimateMaxBackbar)
+
+		addToChatWithPrefix(strfor("Your health %s%%, magicka %s%%, stamina %s%%, ultimate %s/%s%%", tos(healthPercent), tos(magickaPercent), tos(staminaPercent), tos(ultimatePrimaryPercent), tos(ultimateBackupPercent)), nil, CON_PRIO_CHAT_COMBAT_YOUR_HEALTH)
 	end
 end
 
@@ -1393,6 +1556,18 @@ end
 ------------------------------------------------------------------------------------------------------------------------
 -- Keybindings
 ------------------------------------------------------------------------------------------------------------------------
+function FCOAB.ToggleLAMSetting(settingId)
+	local settings = FCOAB.settingsVars.settings
+	if settings == nil or settings[settingId] == nil then return end
+
+	local currentValue = settings[settingId]
+	local newValue = not currentValue
+	if newValue ~= nil then
+		FCOAB.settingsVars.settings[settingId] = newValue
+		outputLAMSettingsChangeToChat(tos(newValue), tos(settingId), true)
+	end
+end
+
 function FCOAB.SavedPreferredPlayerForPassengerMount()
 	local settings = FCOAB.settingsVars.settings
 	--Get the old displayName
@@ -1452,17 +1627,6 @@ function FCOAB.PassengerMountWithPreferredPlayer()
 	end
 end
 
-local function isAccessibilitySettingEnabled(settingId)
-	return GetSetting_Bool(SETTING_TYPE_ACCESSIBILITY, settingId)
-end
-
-local function changeAccessibilitSettingTo(newState, settingId)
-	SetSetting(SETTING_TYPE_ACCESSIBILITY, settingId, newState)
-end
-
-local function isAccessibilityModeEnabled()
-	return isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
-end
 
 --Gamepad mode -> Keyboard mode
 --Keyboard mode -> Gamepad mode + Accessibility mode on
@@ -1472,10 +1636,10 @@ function FCOAB.ToggleAccessibilityMode()
 
 	--Toggle the Accessibility mode
 	local newState = (isAccessiModeEnabled == true and '0') or '1'
-	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
 	local accessibilityModeStr = (newState == '0' and "Off") or 'On'
 
 	outputLAMSettingsChangeToChat("\'" .. tos(accessibilityModeStr) .. "\'", "- Accessibility Mode", true)
+	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
 end
 
 function FCOAB.ToggleAccessibilityChatReader()
@@ -1484,10 +1648,10 @@ function FCOAB.ToggleAccessibilityChatReader()
 
 	local isAccessiModeSettingEnabled = isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION)
 	local newState = (isAccessiModeSettingEnabled == true and '0') or '1'
-	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION)
 	local accessibilityModeStr = (newState == '0' and "Off") or 'On'
 
 	outputLAMSettingsChangeToChat("\'" .. tos(accessibilityModeStr) .. "\'", "- Chat Reader of Accessibility Mode", true)
+	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION)
 end
 
 function FCOAB.ToggleAccessibilityMenuReader()
@@ -1496,11 +1660,20 @@ function FCOAB.ToggleAccessibilityMenuReader()
 
 	local isAccessiModeSettingEnabled = isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_SCREEN_NARRATION)
 	local newState = (isAccessiModeSettingEnabled == true and '0') or '1'
-	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_SCREEN_NARRATION)
 	local accessibilityModeStr = (newState == '0' and "Off") or 'On'
 
 	outputLAMSettingsChangeToChat("\'" .. tos(accessibilityModeStr) .. "\'", "- Menu reader of Accessibility Mode", true)
+	changeAccessibilitSettingTo(newState, ACCESSIBILITY_SETTING_SCREEN_NARRATION)
 end
+
+function FCOAB.ClearAccessibilityChatReaderQueue()
+	--Check if Accessibility mode is enabled
+	if not isAccessibilityModeEnabled() then return end
+	if isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION) == true then
+		ClearNarrationQueue(NARRATION_TYPE_TEXT_CHAT)
+	end
+end
+
 
 
 --===================== SLASH COMMANDS ==============================================
@@ -1527,45 +1700,51 @@ local function command_handler(args)
 end
 
 --returns the table  playSoundData = {number repeats, milliseconds delay, number playMultipleTimesToIncreaseVolume}
-local function getPreviewDataTab(soundType, repeats)
+local function getPreviewDataTab(soundType, playCount, index)
 	local settings = FCOAB.settingsVars.settings
-	repeats = repeats or 1
+	playCount      = playCount or 1
 	--{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
 	if soundType == "CompassTrackedQuest" then
 		return {
-			playCount = repeats,
+			playCount = playCount,
 			delayInMS = settings.compassTrackedQuestSoundDelay * 1000, --transfer seconds to milliseconds
 			increaseVolume = settings.compassTrackedQuestSoundRepeat,
 		}
 	elseif soundType == "CompassPlayerWaypoint" then
 		return {
-			playCount = repeats,
+			playCount = playCount,
 			delayInMS = settings.compassPlayerWaypointSoundDelay * 1000, --transfer seconds to milliseconds
 			increaseVolume = settings.compassPlayerWaypointSoundRepeat,
 		}
 	elseif soundType == "CompassGroupRallyPoint" then
 		return {
-			playCount = repeats,
+			playCount = playCount,
 			delayInMS = settings.compassGroupRallyPointSoundDelay * 1000, --transfer seconds to milliseconds
 			increaseVolume = settings.compassGroupRallyPointSoundRepeat,
 		}
 	elseif soundType == "GroupLeader" then
 		return {
-			playCount = repeats,
+			playCount = playCount,
 			delayInMS = settings.groupLeaderSoundDelay * 1000, --transfer seconds to milliseconds
 			increaseVolume = settings.groupLeaderSoundRepeat,
 		}
 	elseif soundType == "CombatStart" then
 		return {
-			playCount = repeats,
+			playCount = playCount,
 			delayInMS = 0,
 			increaseVolume = settings.combatStartSoundRepeat,
 		}
 	elseif soundType == "CombatEnd" then
 		return {
-			playCount = repeats,
+			playCount = playCount,
 			delayInMS = 0,
 			increaseVolume = settings.combatEndSoundRepeat,
+		}
+	elseif soundType == "CombatTip" then
+		return {
+			playCount = playCount,
+			delayInMS = 0,
+			increaseVolume = settings.combatTipSoundRepeat[index],
 		}
 	end
 end
@@ -1999,8 +2178,23 @@ local function BuildAddonMenu()
 		--==============================================================================
 		{
 			type = 'header',
-			name = "Reticle",
+			name = "Reticle: Unit/NPCs/Enemies",
 		},
+
+		{
+			type = "checkbox",
+			name = "Reticle to chat: In Combat too",
+			tooltip = "Show the current reticle data in chat if you are in combat too. If this option is disabled you won't see any unit/enemy/player or interaction data during combat. Check the combat settings for enemy health output to chat during combat!",
+			getFunc = function() return settings.reticleToChatInCombat end,
+			setFunc = function(value)
+				settings.reticleToChatInCombat = value
+				outputLAMSettingsChangeToChat(tos(value), "Reticle to chat: Only in Combat")
+			end,
+			default = defaultSettings.reticleToChatInCombat,
+			disabled = function() return not settings.reticleUnitToChatText and not settings.reticlePlayerToChatText and not settings.reticleInteractionToChatText end
+			--disabled = function() false end,
+		},
+
 		{
 			type = "checkbox",
 			name = "Show unit data (enemy, NPC, critter, ...) in chat",
@@ -2027,7 +2221,25 @@ local function BuildAddonMenu()
 			default = defaultSettings.reticleUnitIgnoreCritter,
 			--disabled = function() false end,
 		},
+		{
+			type = "checkbox",
+			name = "Unit to chat: Disable in group",
+			tooltip = "Disable the \'Reticle: Unit data to chat\' feature automatically if you are in a group",
+			getFunc = function() return settings.reticleToChatUnitDisableInGroup end,
+			setFunc = function(value)
+				settings.reticleToChatUnitDisableInGroup = value
+				outputLAMSettingsChangeToChat(tos(value), "Unit to chat: Disable in group")
+			end,
+			default = defaultSettings.reticleToChatUnitDisableInGroup,
+			disabled = function() return not settings.reticleUnitToChatText end
+			--disabled = function() false end,
+		},
 
+		--==============================================================================
+		{
+			type = 'header',
+			name = "Reticle: Player",
+		},
 		{
 			type = "checkbox",
 			name = "Show other player data in chat",
@@ -2089,26 +2301,29 @@ local function BuildAddonMenu()
 			default = defaultSettings.reticlePlayerAlliance,
 			disabled = function() return not settings.reticlePlayerToChatText end,
 		},
-
-
 		{
 			type = "checkbox",
-			name = "Reticle to chat: In Combat too",
-			tooltip = "Show the current reticle data in chat if you are in combat too.",
-			getFunc = function() return settings.reticleToChatInCombat end,
+			name = "Player to chat: Disable in group",
+			tooltip = "Disable the \'Reticle: Player data to chat\' feature automatically if you are in a group",
+			getFunc = function() return settings.reticleToChatPlayerDisableInGroup end,
 			setFunc = function(value)
-				settings.reticleToChatInCombat = value
-				outputLAMSettingsChangeToChat(tos(value), "Reticle to chat: Only in Combat")
+				settings.reticleToChatPlayerDisableInGroup = value
+				outputLAMSettingsChangeToChat(tos(value), "Player to chat: Disable in group")
 			end,
-			default = defaultSettings.reticleToChatInCombat,
-			disabled = function() return not settings.reticleUnitToChatText and not settings.reticlePlayerToChatText end
+			default = defaultSettings.reticleToChatPlayerDisableInGroup,
+			disabled = function() return not settings.reticlePlayerToChatText end
 			--disabled = function() false end,
 		},
 
 
+		--==============================================================================
+		{
+			type = 'header',
+			name = "Reticle: Interactable objects",
+		},
 		{
 			type = "checkbox",
-			name = "Show interaction (doors, boxes, ...) data in chat",
+			name = "Show interaction (NPCs, doors, boxes, chests, ...) data in chat",
 			tooltip = "Show the currently looked at interaction data in the chat and show if they are blocked, if it's criminal to use/open them, etc.",
 			getFunc = function() return settings.reticleInteractionToChatText end,
 			setFunc = function(value)
@@ -2117,6 +2332,19 @@ local function BuildAddonMenu()
 				interactionData()
 			end,
 			default = defaultSettings.reticleInteractionToChatText,
+			--disabled = function() false end,
+		},
+		{
+			type = "checkbox",
+			name = "Interaction to chat: Disable in group",
+			tooltip = "Disable the \'Reticle: Interaction data to chat\' feature automatically if you are in a group",
+			getFunc = function() return settings.reticleToChatInteractionDisableInGroup end,
+			setFunc = function(value)
+				settings.reticleToChatInteractionDisableInGroup = value
+				outputLAMSettingsChangeToChat(tos(value), "Interaction to chat: Disable in group")
+			end,
+			default = defaultSettings.reticleToChatInteractionDisableInGroup,
+			disabled = function() return not settings.reticleInteractionToChatText end
 			--disabled = function() false end,
 		},
 
@@ -2316,6 +2544,7 @@ local function BuildAddonMenu()
 			--disabled = function() false end,
 		},
 
+		----------------------------------------------------------------------------------------------------------------
 		{
 			type = "checkbox",
 			name = "Combat: Tip to chat",
@@ -2332,6 +2561,234 @@ local function BuildAddonMenu()
 			--disabled = function() false end,
 		},
 
+				{
+			type = "checkbox",
+			name    = "Combat Tip - Play sound",
+			tooltip = "Plays a sound once if a combat tip is triggered. Choose the different combat tip sounds below at the respective sound slider.",
+			getFunc = function() return settings.combatTipSound end,
+			setFunc = function(value)
+				settings.combatTipSound = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip - Play sound")
+			end,
+			default = defaultSettings.combatTipSound,
+			--disabled = function() return false end,
+		},
+		{
+			type = "soundslider",
+			name = "Combat Tip \'Block\': Choose sound", -- or string id or function returning a string
+			tooltip = "Choose the sound to play if a combat \'Block\' tip is triggered. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
+			getFunc = function() return settings.combatTipSoundName[1] end,
+			setFunc = function(value)
+				settings.combatTipSoundName[1] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Block\': Choose sound")
+			end,
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			saveSoundIndex = false, -- or function returning a boolean (optional) If set to false (default) the internal soundName will be saved. If set to true the selected sound's index will be saved to the SavedVariables (the index might change if sounds get inserted later!).
+			showSoundName = true, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be shown at the label of the slider, and at the tooltip too
+			playSound = false, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be played via function PlaySound
+			playSoundData = function() return getPreviewDataTab("CombatTip", 1, 1) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
+			showPlaySoundButton = true,
+			noAutomaticSoundPreview = false,
+			readOnly = false, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundName[1], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			reference = "FCOAB_LAM_COMBAT_TIP_BLOCK_SOUNDSLIDER" -- unique global reference to control (optional)
+		},
+		{
+			type = "slider",
+			name = "Combat Tip \'Block\': Volume", -- or string id or function returning a string
+			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound for a combat tip to increase the volume with this slider.",
+			getFunc = function() return settings.combatTipSoundRepeat[1] end,
+			setFunc = function(value)
+				settings.combatTipSoundRepeat[1] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Block\': Volume")
+			end,
+			min = 1,
+			max = 10,
+			step = 1, -- (optional)
+			clampInput = true, -- boolean, if set to false the input won't clamp to min and max and allow any number instead (optional)
+			--clampFunction = function(value, min, max) return math.max(math.min(value, max), min) end, -- function that is called to clamp the value (optional)
+			decimals = 0, -- when specified the input value is rounded to the specified number of decimals (optional)
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundRepeat[1], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			--reference = "MyAddonSlider", -- unique global reference to control (optional)
+			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
+		},
+
+		{
+			type = "soundslider",
+			name = "Combat Tip \'Off Balance\': Choose sound", -- or string id or function returning a string
+			tooltip = "Choose the sound to play if a combat \'Off Balance\' tip is triggered. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
+			getFunc = function() return settings.combatTipSoundName[2] end,
+			setFunc = function(value)
+				settings.combatTipSoundName[2] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Off Balance\': Choose sound")
+			end,
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			saveSoundIndex = false, -- or function returning a boolean (optional) If set to false (default) the internal soundName will be saved. If set to true the selected sound's index will be saved to the SavedVariables (the index might change if sounds get inserted later!).
+			showSoundName = true, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be shown at the label of the slider, and at the tooltip too
+			playSound = false, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be played via function PlaySound
+			playSoundData = function() return getPreviewDataTab("CombatTip", 1, 2) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
+			showPlaySoundButton = true,
+			noAutomaticSoundPreview = false,
+			readOnly = false, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundName[2], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			reference = "FCOAB_LAM_COMBAT_TIP_OFFBALANCE_SOUNDSLIDER" -- unique global reference to control (optional)
+		},
+		{
+			type = "slider",
+			name = "Combat Tip \'Off Balance\': Volume", -- or string id or function returning a string
+			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound for a combat tip to increase the volume with this slider.",
+			getFunc = function() return settings.combatTipSoundRepeat[2] end,
+			setFunc = function(value)
+				settings.combatTipSoundRepeat[2] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Off Balance\': Volume")
+			end,
+			min = 1,
+			max = 10,
+			step = 1, -- (optional)
+			clampInput = true, -- boolean, if set to false the input won't clamp to min and max and allow any number instead (optional)
+			--clampFunction = function(value, min, max) return math.max(math.min(value, max), min) end, -- function that is called to clamp the value (optional)
+			decimals = 0, -- when specified the input value is rounded to the specified number of decimals (optional)
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundRepeat[2], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			--reference = "MyAddonSlider", -- unique global reference to control (optional)
+			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
+		},
+
+		{
+			type = "soundslider",
+			name = "Combat Tip \'Interrupt\': Choose sound", -- or string id or function returning a string
+			tooltip = "Choose the sound to play if a combat \'Interrupt\' tip is triggered. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
+			getFunc = function() return settings.combatTipSoundName[3] end,
+			setFunc = function(value)
+				settings.combatTipSoundName[3] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Interrupt\': Choose sound")
+			end,
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			saveSoundIndex = false, -- or function returning a boolean (optional) If set to false (default) the internal soundName will be saved. If set to true the selected sound's index will be saved to the SavedVariables (the index might change if sounds get inserted later!).
+			showSoundName = true, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be shown at the label of the slider, and at the tooltip too
+			playSound = false, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be played via function PlaySound
+			playSoundData = function() return getPreviewDataTab("CombatTip", 1, 3) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
+			showPlaySoundButton = true,
+			noAutomaticSoundPreview = false,
+			readOnly = false, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundName[3], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			reference = "FCOAB_LAM_COMBAT_TIP_INTERRUPT_SOUNDSLIDER" -- unique global reference to control (optional)
+		},
+		{
+			type = "slider",
+			name = "Combat Tip \'Interrupt\': Volume", -- or string id or function returning a string
+			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound for a combat tip to increase the volume with this slider.",
+			getFunc = function() return settings.combatTipSoundRepeat[3] end,
+			setFunc = function(value)
+				settings.combatTipSoundRepeat[3] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Interrupt\': Volume")
+			end,
+			min = 1,
+			max = 10,
+			step = 1, -- (optional)
+			clampInput = true, -- boolean, if set to false the input won't clamp to min and max and allow any number instead (optional)
+			--clampFunction = function(value, min, max) return math.max(math.min(value, max), min) end, -- function that is called to clamp the value (optional)
+			decimals = 0, -- when specified the input value is rounded to the specified number of decimals (optional)
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundRepeat[3], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			--reference = "MyAddonSlider", -- unique global reference to control (optional)
+			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
+		},
+
+				{
+			type = "soundslider",
+			name = "Combat Tip \'Dodge\': Choose sound", -- or string id or function returning a string
+			tooltip = "Choose the sound to play if a combat \'Dodge\' tip is triggered. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
+			getFunc = function() return settings.combatTipSoundName[4] end,
+			setFunc = function(value)
+				settings.combatTipSoundName[4] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Dodge\': Choose sound")
+			end,
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			saveSoundIndex = false, -- or function returning a boolean (optional) If set to false (default) the internal soundName will be saved. If set to true the selected sound's index will be saved to the SavedVariables (the index might change if sounds get inserted later!).
+			showSoundName = true, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be shown at the label of the slider, and at the tooltip too
+			playSound = false, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be played via function PlaySound
+			playSoundData = function() return getPreviewDataTab("CombatTip", 1, 4) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
+			showPlaySoundButton = true,
+			noAutomaticSoundPreview = false,
+			readOnly = false, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundName[1], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			reference = "FCOAB_LAM_COMBAT_TIP_DODGE_SOUNDSLIDER" -- unique global reference to control (optional)
+		},
+		{
+			type = "slider",
+			name = "Combat Tip \'Dodge\': Volume", -- or string id or function returning a string
+			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound for a combat tip to increase the volume with this slider.",
+			getFunc = function() return settings.combatTipSoundRepeat[4] end,
+			setFunc = function(value)
+				settings.combatTipSoundRepeat[4] = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Tip \'Dodge\': Volume")
+			end,
+			min = 1,
+			max = 10,
+			step = 1, -- (optional)
+			clampInput = true, -- boolean, if set to false the input won't clamp to min and max and allow any number instead (optional)
+			--clampFunction = function(value, min, max) return math.max(math.min(value, max), min) end, -- function that is called to clamp the value (optional)
+			decimals = 0, -- when specified the input value is rounded to the specified number of decimals (optional)
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.combatTipSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.combatTipSoundRepeat[4], -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			--reference = "MyAddonSlider", -- unique global reference to control (optional)
+			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
+		},
+		----------------------------------------------------------------------------------------------------------------
 
 		{
 			type = "checkbox",
@@ -2919,14 +3376,17 @@ local function LoadUserSettings()
 		reticleUnitToChatText = true,
 		reticleUnitIgnoreCritter = true,
 		reticleToChatInCombat = false,
+		reticleToChatUnitDisableInGroup = false,
 
 		reticlePlayerToChatText = true,
 		reticlePlayerLevel = true,
 		reticlePlayerRace = true,
 		reticlePlayerClass = true,
 		reticlePlayerAlliance = true,
+		reticleToChatPlayerDisableInGroup = false,
 
 		reticleInteractionToChatText = true,
+		reticleToChatInteractionDisableInGroup = false,
 
 		autoRemoveWaypoint = true,
 
@@ -2949,6 +3409,19 @@ local function LoadUserSettings()
 		combatEndSoundRepeat = 4,
 
 		combatTipToChat = true,
+		combatTipSound = true,
+		combatTipSoundName = {
+			[1] = "Dyeing_Swatch_Selected", --block
+			[2] = "Dyeing_Swatch_Selected", --offBalance
+			[3] = "Dyeing_Swatch_Selected", --interrupt
+			[4] = "Dyeing_Swatch_Selected", --dodge
+		},
+		combatTipSoundRepeat = {
+			[1] = 3,
+			[2] = 3,
+			[3] = 3,
+			[4] = 3,
+		},
 
 		showReticleOverUnitHealthInChat = true,
 
@@ -2982,6 +3455,7 @@ local function LoadUserSettings()
 	end
 end
 
+
 --Addon loads up
 local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 	--Is this addon found?
@@ -2994,6 +3468,8 @@ local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 	LAM = LibAddonMenu2
 	GPS = LibGPS3
 
+	--esoui\ingame\keybindings\keyboard\keybindings.lua
+	function KEYBINDING_MANAGER:IsChordingAlwaysEnabled() return true end
 
 	--SavedVariables
 	LoadUserSettings()
@@ -3031,7 +3507,6 @@ local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 	end)
 	]]
 
-
 	addonVars.gAddonLoaded = true
 end
 
@@ -3045,3 +3520,4 @@ end
 --- Call the start function for this addon to register events etc.
 --------------------------------------------------------------------------------
 FCOAccessibility_Initialized()
+

@@ -1,12 +1,6 @@
 <Bindings>
     <Layer name="SI_KEYBINDINGS_CATEGORY_GENERAL">
         <Category name="|c00FF00FCO |cFFFF00Accessibility|r">
-            <Action name="FCOAB_SAVE_PASSENGER_MOUNT_DISPLAYNAME">
-                <Down>FCOAB.SavedPreferredPlayerForPassengerMount()</Down>
-            </Action>
-            <Action name="FCOAB_MOUNT_PASSENGER_MOUNT_DISPLAYNAME">
-                <Down>FCOAB.PassengerMountWithPreferredPlayer()</Down>
-            </Action>
             <Action name="FCOAB_TOGGLE_ACCESSIBILTY_MODE">
                 <Down>FCOAB.ToggleAccessibilityMode()</Down>
             </Action>
@@ -15,6 +9,29 @@
             </Action>
             <Action name="FCOAB_TOGGLE_ACCESSIBILTY_MENUREADER">
                 <Down>FCOAB.ToggleAccessibilityMenuReader()</Down>
+            </Action>
+            <Action name="FCOAB_CLEAR_ACCESSIBILTY_CHATREADER_QUEUE">
+                <Down>FCOAB.ClearAccessibilityChatReaderQueue()</Down>
+            </Action>
+
+            <Action name="FCOAB_TOGGLE_LAM_SETTING_COMPASS_TO_CHAT">
+                <Down>FCOAB.ToggleLAMSetting("compassToChatText")</Down>
+            </Action>
+            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_UNIT_TO_CHAT">
+                <Down>FCOAB.ToggleLAMSetting("reticleUnitToChatText")</Down>
+            </Action>
+            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT">
+                <Down>FCOAB.ToggleLAMSetting("reticlePlayerToChatText")</Down>
+            </Action>
+            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT">
+                <Down>FCOAB.ToggleLAMSetting("reticleInteractionToChatText")</Down>
+            </Action>
+
+            <Action name="FCOAB_SAVE_PASSENGER_MOUNT_DISPLAYNAME">
+                <Down>FCOAB.SavedPreferredPlayerForPassengerMount()</Down>
+            </Action>
+            <Action name="FCOAB_MOUNT_PASSENGER_MOUNT_DISPLAYNAME">
+                <Down>FCOAB.PassengerMountWithPreferredPlayer()</Down>
             </Action>
         </Category>
     </Layer>
