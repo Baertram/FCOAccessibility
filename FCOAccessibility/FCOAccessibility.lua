@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '0.6' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '0.9' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -61,13 +61,13 @@ local CON_COMPANION = "companion"
 local CON_CRITTER_MAX_HEALTH = 1
 
 --Chat output priroties. Hgher values will be shown more early
+--[[
 local CON_PRIO_CHAT_LOW = 					1
 local CON_PRIO_CHAT_MEDIUM = 				2
 local CON_PRIO_CHAT_HIGH = 					3
 local CON_PRIO_CHAT_COMBAT_ENEMY_HEALTH =	50
 local CON_PRIO_CHAT_COMBAT_YOUR_HEALTH =	51
 local CON_PRIO_CHAT_COMBAT_TIP =			59
---[[
 local possibleChatPriorities = {
 	CON_PRIO_CHAT_LOW,
 	CON_PRIO_CHAT_MEDIUM,
@@ -128,6 +128,9 @@ end
 local playerWaypointPinTypes = {
 	[MAP_PIN_TYPE_PLAYER_WAYPOINT] = true,
 }
+local groupRallyPointPinTypes = {
+	[MAP_PIN_TYPE_RALLY_POINT] = true,
+}
 local trackedQuestPinTypes = {
 	[MAP_PIN_TYPE_TRACKED_QUEST_CONDITION] = true, --19
 	[MAP_PIN_TYPE_TRACKED_QUEST_ENDING]= true, --21
@@ -178,11 +181,20 @@ local mapPinTypeToCompassText = {
 	[MAP_PIN_TYPE_QUEST_ZONE_STORY_OPTIONAL_CONDITION] = "Quest zone story optional condition",
 	[MAP_PIN_TYPE_QUEST_TALK_TO] = "Quest talk to",
 }
-
-
+local targetMarkerPinTypes = {
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_ONE] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_TWO] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_THREE] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_FOUR] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_FIVE] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_SIX] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_SEVEN] = true,
+	[MAP_PIN_TYPE_TARGET_MARKER_TYPE_EIGHT] = true,
+}
 
 local autoRemoveWaypointEventName = addonName .. "_AutoRemoveWaypoint"
 local groupLeaderPosEventName = addonName .. "_GroupLeaderPos"
+local autoRemovePlayerMovingEventName = addonName .. "_IsPlayerMoving"
 
 --Sring comparison variables
 --[[
@@ -199,6 +211,7 @@ local companionStr = GetString(SI_UNIT_FRAME_NAME_COMPANION)
 
 --Variables for the compass checks
 --local lastCompassCenterOverPinLabeltext
+local CreateCompassHooks
 local noCompassPinSelected = true
 local lastTrackedQuestIndex, lastTrackedQuestName, lastTrackedQuestBackgroundText, lastTrackedQuestActiveStepText
 local lastPlayed = {
@@ -207,6 +220,7 @@ local lastPlayed = {
 	rallyPoint = 0,
 	quest = 0,
 	groupLeader = 0,
+	playerNotMoving = 0,
 
 	--Chat
 	compass2Chat = 0,
@@ -256,8 +270,10 @@ local reticleOverPlayerChangedEventRegistered = false
 
 local hitTargetsUnitIds = {}
 local hitTargetsNames = {}
---FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
---FCOAB._hitTargetsNames = hitTargetsNames
+local targetMarkersApplied = {}
+FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+FCOAB._hitTargetsNames = hitTargetsNames
+FCOAB._targetMarkersApplied = targetMarkersApplied
 
 local hadLastCombatAnyChatMessage = false
 local wasNarrationQueueCleared = false
@@ -408,7 +424,7 @@ local function showCombatTipInChat(tipId)
 	hadLastCombatAnyChatMessage = true
 
 	--directlyReadOrAddToChat(tipData.label, CON_PRIO_CHAT_COMBAT_TIP)
-	addToChatWithPrefix(tipData.label, nil, CON_PRIO_CHAT_COMBAT_TIP)
+	addToChatWithPrefix(tipData.label, nil)
 
 	local settings = FCOAB.settingsVars.settings
 	if settings.combatTipSound == true then
@@ -581,7 +597,10 @@ end
 -- Used for Automatically removing waypoints local function CheckWaypointLoc()
 local isWaypointRemoveUpdateEventActive = false
 local isGroupLeaderUpdateEventActive = false
-local runWaypointRemoveUpdates, runGroupLeaderUpdates
+local isTryingToMoveButBlockedUpdateEventActive = false
+
+local runWaypointRemoveUpdates, runGroupLeaderUpdates, runTryingToMoveButBlockedUpdates
+
 local function checkWaypointLoc()
 	-- if not on cosmic map or we reset it to player location
 	if not canProcessMap() then
@@ -628,6 +647,51 @@ runWaypointRemoveUpdates = function (doEnable, forced)
 		EM:UnregisterForUpdate(autoRemoveWaypointEventName)
 	end
 end
+
+local function checkIsPlayerTryingToMove()
+	--Is the player dead? Disable checks -> Handled via event_player_dead and event_player_alive
+	--Player is actually not moving but it's tried to move? -> We are stuck (most probably)
+	local isPlayerMoving = IsPlayerMoving()
+--d(">>>>>IsPlayerTryingToMove-moving: " ..tos(isPlayerMoving) .. ", trying: " ..tos(IsPlayerTryingToMove()) .. ", stunned: " .. tos(IsPlayerStunned()))
+	if isPlayerMoving == false and IsPlayerTryingToMove() == true then
+		--Player is stunned?
+		if IsPlayerStunned() == true then
+			lastPlayed.playerNotMoving = 0
+		else
+			--Are we interacting somehow?
+			if IsInteracting() == true then
+				lastPlayed.playerNotMoving = 0
+			else
+				local settings = FCOAB.settingsVars.settings
+				--Play the trying to move but blocked sound
+				local now = GetGameTimeMilliseconds()
+				local lastPlayedPlayerNotMoving = lastPlayed.playerNotMoving
+				local waitTime = 3000 --settings.tryingToMoveButBlockedSoundDelay * 1000
+
+				if lastPlayedPlayerNotMoving == 0 or now >= (lastPlayedPlayerNotMoving + waitTime) then
+					lastPlayed.playerNotMoving = now
+					playSoundLoopNow(settings.tryingToMoveButBlockedSoundName, settings.tryingToMoveButBlockedSoundRepeat)
+				end
+			end
+		end
+	elseif isPlayerMoving then
+		lastPlayed.playerNotMoving = 0
+	end
+end
+
+runTryingToMoveButBlockedUpdates = function(doEnable, forced)
+--d("[FCOAB]runTryingToMoveButBlockedUpdates - doEnable: " ..tos(doEnable) .. ", forced: " ..tos(forced))
+	if doEnable and (forced or FCOAB.settingsVars.settings.tryingToMoveButBlockedSound) then
+		isTryingToMoveButBlockedUpdateEventActive = true
+		EM:RegisterForUpdate(autoRemovePlayerMovingEventName, 3000,
+				function() checkIsPlayerTryingToMove() end
+		)
+	else
+		isTryingToMoveButBlockedUpdateEventActive = false
+		EM:UnregisterForUpdate(autoRemovePlayerMovingEventName)
+	end
+end
+
 
 local function OnTryHandlingInteraction(reticleObj, interactionPossible, currentFrameTimeSeconds)
 	if not interactionPossible then return false end
@@ -1066,40 +1130,65 @@ local actionResultsTracked = {
 	[ACTION_RESULT_BLOCKED_DAMAGE] = true,
 	[ACTION_RESULT_PRECISE_DAMAGE] = true,
 }
-
---[[
+local allowedSourceTypes = {
+	[COMBAT_UNIT_TYPE_PLAYER] = true,
+	[COMBAT_UNIT_TYPE_PLAYER_PET] = true,
+	[COMBAT_UNIT_TYPE_PLAYER_COMPANION] = true,
+}
+local enemyNumberToTargetMarkerType = {
+	[1] = TARGET_MARKER_TYPE_ONE,
+	[2] = TARGET_MARKER_TYPE_TWO,
+	[3] = TARGET_MARKER_TYPE_THREE,
+	[4] = TARGET_MARKER_TYPE_FOUR,
+	[5] = TARGET_MARKER_TYPE_FIVE,
+	[6] = TARGET_MARKER_TYPE_SIX,
+	[7] = TARGET_MARKER_TYPE_SEVEN,
+	[8] = TARGET_MARKER_TYPE_EIGHT,
+}
+local enemyNumber = 0
 local function onCombatEvent(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
 	--Only in combat, for non filtered targetTypes, for tracked actionResults, and if the targetUnitId wasn't added before already
-	if IsUnitInCombat(CON_PLAYER) == false or targetUnitId == nil or hitTargetsUnitIds[targetUnitId] ~= nil
-			or combatTargetTypesFiltered[targetType] == true or not actionResultsTracked[result] then
+	--and if there is no target unit marker on the enemy yet
+	if IsUnitInCombat(CON_PLAYER) == false
+			or combatTargetTypesFiltered[targetType] == true
+			or not actionResultsTracked[result]
+			or not allowedSourceTypes[sourceType]
+			or targetUnitId == nil
+			or targetMarkersApplied[targetUnitId] ~= nil
+			or targetName == nil or targetName == ""
+			--or hitTargetsUnitIds[targetUnitId] ~= nil
+	then
 		return
 	end
 
 	--Which source? Only for player (pets/companions)
-	if 		sourceType == COMBAT_UNIT_TYPE_PLAYER then
-		local targetName = zo_strformat(SI_UNIT_NAME, targetName)
---d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
-		hitTargetsUnitIds[targetUnitId] = targetName
-		hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
-		hitTargetsNames[targetName][targetUnitId] = true
-	elseif 	sourceType == COMBAT_UNIT_TYPE_PLAYER_PET then
-		local targetName = zo_strformat(SI_UNIT_NAME, targetName)
---d("[FCOAB]OnCombatEvent-source: pet, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
-		hitTargetsUnitIds[targetUnitId] = targetName
-		hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
-		hitTargetsNames[targetName][targetUnitId] = true
-	elseif 	sourceType == COMBAT_UNIT_TYPE_PLAYER_COMPANION then
-		local targetName = zo_strformat(SI_UNIT_NAME, targetName)
---d("[FCOAB]OnCombatEvent-source: companion, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
-		hitTargetsUnitIds[targetUnitId] = targetName
-		hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
-		hitTargetsNames[targetName][targetUnitId] = true
-	end
+	--local targetNameClean = zo_strformat(SI_UNIT_NAME, targetName)
+d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
+	hitTargetsUnitIds[targetUnitId] = targetName
+	hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
+	hitTargetsNames[targetName][targetUnitId] = true
 
-	FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
-	FCOAB._hitTargetsNames = hitTargetsNames
+--for debugging
+FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+FCOAB._hitTargetsNames = hitTargetsNames
+FCOAB._targetMarkersApplied = targetMarkersApplied
+
+	--Automatically apply the target marker to the enemy, if the same enemy of the combatevent here is below the reticle
+	local unitNameBelowReticle = GetUnitName(CON_RETICLE)
+	local companionActive = HasActiveCompanion()
+	if (IsUnitActivelyEngaged(CON_RETICLE) and (not companionActive or (companionActive == true and not AreUnitsEqual(CON_COMPANION, CON_RETICLE)))
+		and unitNameBelowReticle == targetName) then
+		local activeTargetMarkerType = GetUnitTargetMarkerType(CON_RETICLE)
+d(">combat target = reticle, Marker: " ..tos(activeTargetMarkerType))
+		if activeTargetMarkerType == nil or activeTargetMarkerType == 0 then
+			enemyNumber = enemyNumber + 1
+			zo_clamp(enemyNumber, TARGET_MARKER_TYPE_ONE, TARGET_MARKER_TYPE_EIGHT)
+			local targetMarkerType = enemyNumberToTargetMarkerType[enemyNumber]
+			AssignTargetMarkerToReticleTarget(targetMarkerType)
+			targetMarkersApplied[targetUnitId] = targetMarkerType
+		end
+	end
 end
-]]
 
 local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue, powerMax, powerEffectiveMax)
 	local unitName = zo_strformat(SI_UNIT_NAME, GetUnitName(CON_RETICLE))
@@ -1179,6 +1268,7 @@ local function reticleUnitData()
 	local reticlePlayerToChatText = settings.reticlePlayerToChatText
 	local showReticleOverUnitHealthInChat = settings.showReticleOverUnitHealthInChat
 
+	--Unit
 	if reticleOverChangedEventRegistered == false and (reticleUnitToChatText == true or showReticleOverUnitHealthInChat == true) then
 		reticleOverLastHealthPercent = 0
 		EM:RegisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_CHANGED", EVENT_RETICLE_TARGET_CHANGED, function(eventId)
@@ -1197,13 +1287,21 @@ local function reticleUnitData()
 			local reticleToChatInCombat = settings.reticleToChatInCombat
 			local isInCombat = IsUnitInCombat(CON_PLAYER)
 
-			if isInCombat == true and showReticleOverUnitHealthInChat == true and DoesUnitExist(CON_RETICLE) and IsUnitDead(CON_RETICLE) == false then
-				--Update the last saved health value of the target below the reticle, as %
-				local health, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
-				if health > 0 and maxHealth > 0 then
-					reticleOverLastHealthPercent = getPercent(health, maxHealth)
-				else
-					reticleOverLastHealthPercent = 0
+			if isInCombat == true then
+				--[[
+				if targetMarkersSetInCombatToEnemies == true then
+
+				end
+				]]
+
+				if showReticleOverUnitHealthInChat == true and DoesUnitExist(CON_RETICLE) and IsUnitDead(CON_RETICLE) == false then
+					--Update the last saved health value of the target below the reticle, as %
+					local health, maxHealth = GetUnitPower(CON_RETICLE, COMBAT_MECHANIC_FLAGS_HEALTH)
+					if health > 0 and maxHealth > 0 then
+						reticleOverLastHealthPercent = getPercent(health, maxHealth)
+					else
+						reticleOverLastHealthPercent = 0
+					end
 				end
 			else
 				reticleOverLastHealthPercent = 0
@@ -1251,30 +1349,18 @@ local function reticleUnitData()
 		EM:AddFilterForEvent(addonName .. "_EVENT_POWER_UPDATE_STAMINA", 	EVENT_POWER_UPDATE, 		REGISTER_FILTER_UNIT_TAG, CON_RETICLE, REGISTER_FILTER_POWER_TYPE, COMBAT_MECHANIC_FLAGS_STAMINA)
 		EM:RegisterForEvent(addonName .. "_EVENT_POWER_UPDATE_MAGICKA", 	EVENT_POWER_UPDATE, 		onPowerUpdate)
 		EM:AddFilterForEvent(addonName .. "_EVENT_POWER_UPDATE_MAGICKA", 	EVENT_POWER_UPDATE, 		REGISTER_FILTER_UNIT_TAG, CON_RETICLE, REGISTER_FILTER_POWER_TYPE, COMBAT_MECHANIC_FLAGS_MAGICKA)
-
-		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_IS_ERROR, false)
-		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET, REGISTER_FILTER_IS_ERROR, false)
-		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", 	EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION, REGISTER_FILTER_IS_ERROR, false)
 		]]
-
 		reticleOverChangedEventRegistered = true
 	else
 		if reticleOverChangedEventRegistered == true and (reticleUnitToChatText == false and showReticleOverUnitHealthInChat == false) then
 			reticleOverLastHealthPercent = 0
 			EM:UnregisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_CHANGED",	EVENT_RETICLE_TARGET_CHANGED)
 			EM:UnregisterForEvent(addonName .. "_EVENT_POWER_UPDATE_HEALTH",	EVENT_POWER_UPDATE)
-			--[[
-			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
-			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
-			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
-			]]
 			reticleOverChangedEventRegistered = false
 		end
 	end
 
+	--Player
 	if reticleOverPlayerChangedEventRegistered == false and reticlePlayerToChatText == true then
 		EM:RegisterForEvent(addonName .. "_EVENT_RETICLE_TARGET_PLAYER_CHANGED", EVENT_RETICLE_TARGET_PLAYER_CHANGED, function(eventId)
 --d("[FCOAB]EVENT_RETICLE_TARGET_PLAYER_CHANGED-name: " .. tos(GetUnitName(CON_RETICLE_PLAYER)))
@@ -1328,6 +1414,19 @@ local function reticleUnitData()
 		end
 	end
 
+	--Target markers
+	if settings.targetMarkersSetInCombatToEnemies == true then
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_IS_ERROR, false)
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET, REGISTER_FILTER_IS_ERROR, false)
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", 	EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION, REGISTER_FILTER_IS_ERROR, false)
+	else
+		EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
+		EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
+		EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
+	end
 end
 
 local function onGroupStatusChange(hasLeft, hasJoined, onUpdate, onUpdateEventPlayerActivated)
@@ -1507,8 +1606,26 @@ local function onPlayerCombatState(eventId, inCombat)
 	--New combat: Reset the last hit target names and unitIds
 	local settings = FCOAB.settingsVars.settings
 	if inCombat == true then
+		--Leave the target markers for an easier find until the despawn
+		--[[
+		--Reset the target markers again
+		if enemyNumber > 0 or NonContiguousCount(targetMarkersApplied) > 0 then
+			for _, targetMarkerApplied in pairs(targetMarkersApplied) do
+				--Try to assign all the target markers which have been applied to the enemeies before, to the current
+				--unit below the reticle (so they get removed on the old one). If no unit is below the reticle the markers will be assigned to myself
+				--Add
+				AssignTargetMarkerToReticleTarget(targetMarkerApplied)
+				--Remove again
+				AssignTargetMarkerToReticleTarget(targetMarkerApplied)
+			end
+		end
+		]]
+
+		enemyNumber = 0
 		hitTargetsUnitIds = {}
 		hitTargetsNames = {}
+		targetMarkersApplied = {}
+
 		hadLastCombatAnyChatMessage = false
 		wasNarrationQueueCleared = false
 	else
@@ -1548,7 +1665,7 @@ local function onPlayerCombatState(eventId, inCombat)
 		local ultimatePrimaryPercent = 	getPercent(yourUltimate, ultimateMax)
 		local ultimateBackupPercent = 	getPercent(yourUltimateBackbar, ultimateMaxBackbar)
 
-		addToChatWithPrefix(strfor("Your health %s%%, magicka %s%%, stamina %s%%, ultimate %s/%s%%", tos(healthPercent), tos(magickaPercent), tos(staminaPercent), tos(ultimatePrimaryPercent), tos(ultimateBackupPercent)), nil, CON_PRIO_CHAT_COMBAT_YOUR_HEALTH)
+		addToChatWithPrefix(strfor("Your health %s%%, magicka %s%%, stamina %s%%, ultimate %s/%s%%", tos(healthPercent), tos(magickaPercent), tos(staminaPercent), tos(ultimatePrimaryPercent), tos(ultimateBackupPercent)), nil)
 	end
 end
 
@@ -1746,6 +1863,12 @@ local function getPreviewDataTab(soundType, playCount, index)
 			delayInMS = 0,
 			increaseVolume = settings.combatTipSoundRepeat[index],
 		}
+	elseif soundType == "MovementBlocked" then
+		return {
+			playCount = playCount,
+			delayInMS = 0,
+			increaseVolume = settings.tryingToMoveButBlockedSoundRepeat,
+		}
 	end
 end
 
@@ -1872,8 +1995,35 @@ local function BuildAddonMenu()
 			setFunc = function(value)
 				settings.compassToChatText = value
 				outputLAMSettingsChangeToChat(tos(value), "Show compass data in chat")
+				CreateCompassHooks()
 			end,
 			default = defaultSettings.compassToChatText,
+			--disabled = function() false end,
+		},
+		{
+			type = "checkbox",
+			name = "Compass to chat: Hide group leader",
+			tooltip = "Hide the group leader's text in chat if you look at it and the compass shows the name at the center.",
+			getFunc = function() return settings.compassToChatTextSkipGroupLeader end,
+			setFunc = function(value)
+				settings.compassToChatTextSkipGroupLeader = value
+				outputLAMSettingsChangeToChat(tos(value), "Compass to chat: Hide groupleader")
+			end,
+			disabled = function() return not settings.compassToChatText  end,
+			default = defaultSettings.compassToChatTextSkipGroupLeader,
+			--disabled = function() false end,
+		},
+		{
+			type = "checkbox",
+			name = "Compass to chat: Hide group members",
+			tooltip = "Hide the group members text in chat if you look at it and the compass shows the name at the center.",
+			getFunc = function() return settings.compassToChatTextSkipGroupMember end,
+			setFunc = function(value)
+				settings.compassToChatTextSkipGroupMember = value
+				outputLAMSettingsChangeToChat(tos(value), "Compass to chat: Hide groupleader")
+			end,
+			disabled = function() return not settings.compassToChatText  end,
+			default = defaultSettings.compassToChatTextSkipGroupMember,
 			--disabled = function() false end,
 		},
 
@@ -1885,9 +2035,10 @@ local function BuildAddonMenu()
 			setFunc = function(value)
 				settings.compassTrackedQuestSound = value
 				outputLAMSettingsChangeToChat(tos(value), "Compass: Tracked quest - Play sound")
+				CreateCompassHooks()
 			end,
 			default = defaultSettings.compassTrackedQuestSound,
-			requiresReload = true,
+			requiresReload = false,
 		},
 		{
 			type = "soundslider",
@@ -1979,9 +2130,10 @@ local function BuildAddonMenu()
 			setFunc = function(value)
 				settings.compassPlayerWaypointSound = value
 				outputLAMSettingsChangeToChat(tos(value), "Compass: Player waypoint - Play sound")
+				CreateCompassHooks()
 			end,
 			default = defaultSettings.compassPlayerWaypointSound,
-			requiresReload = true,
+			requiresReload = false,
 		},
 		{
 			type = "soundslider",
@@ -2072,9 +2224,10 @@ local function BuildAddonMenu()
 			setFunc = function(value)
 				settings.compassGroupRallyPointSound = value
 				outputLAMSettingsChangeToChat(tos(value), "Compass: Group rally point - Play sound")
+				CreateCompassHooks()
 			end,
 			default = defaultSettings.compassGroupRallyPointSound,
-			requiresReload = true,
+			requiresReload = false,
 		},
 		{
 			type = "soundslider",
@@ -2465,7 +2618,7 @@ local function BuildAddonMenu()
 			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
 			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
 			width = "full", -- or "half" (optional)
-			disabled = function() return not settings.groupLeaderSoundDistance end, --or boolean (optional)
+			disabled = function() return not settings.groupLeaderSound end, --or boolean (optional)
 			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
 			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
 			default = defaultSettings.groupLeaderSoundDistance, -- default value or function that returns the default value (optional)
@@ -2922,6 +3075,24 @@ local function BuildAddonMenu()
 			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
 		},
 
+		--==============================================================================
+		{
+			type = 'header',
+			name = "Combat: Target markers",
+		},
+		{
+			type = "checkbox",
+			name    = "Combat Target markers - Automatically apply",
+			tooltip = "Apply up to 8 different target markers to the actively engaged enemies, below your crosshair. Each new enemy below your crosshair will get a new target marker until the end of the combat, which show at the compass too. At teh end of teh combat all target markers will be removed again.",
+			getFunc = function() return settings.targetMarkersSetInCombatToEnemies end,
+			setFunc = function(value)
+				settings.targetMarkersSetInCombatToEnemies = value
+				outputLAMSettingsChangeToChat(tos(value), "Combat Target markers - Automatically apply")
+				reticleUnitData()
+			end,
+			default = defaultSettings.targetMarkersSetInCombatToEnemies,
+			--disabled = function() return false end,
+		},
 
 		--==============================================================================
 		{
@@ -2956,6 +3127,77 @@ local function BuildAddonMenu()
 			reference = "FCOAB_PREFERRED_PASSENGER_MOUNT_EDITBOX" -- unique global reference to control (optional)
 		},
 
+		--==============================================================================
+		{
+			type = 'header',
+			name = "Movement",
+		},
+		{
+			type = "checkbox",
+			name    = "Movement blocked - Play sound",
+			tooltip = "Plays a sound once as you try to move but you are not really moving (running against a wall for example). The sound will be played once every 3 seconds.",
+			getFunc = function() return settings.tryingToMoveButBlockedSound end,
+			setFunc = function(value)
+				settings.tryingToMoveButBlockedSound = value
+				outputLAMSettingsChangeToChat(tos(value), "Movement blocked - Play sound")
+			end,
+			default = defaultSettings.tryingToMoveButBlockedSound,
+			--disabled = function() return false end,
+		},
+		{
+			type = "soundslider",
+			name = "Movement blocked: Choose sound", -- or string id or function returning a string
+			tooltip = "Choose the sound to play if your movement is blocked. Changing the slider will play the sound once as a preview.", -- or string id or function returning a string (optional)
+			getFunc = function() return settings.tryingToMoveButBlockedSoundName end,
+			setFunc = function(value)
+				settings.tryingToMoveButBlockedSoundName = value
+				outputLAMSettingsChangeToChat(tos(value), "Movement blocked: Choose sound")
+				runTryingToMoveButBlockedUpdates(value, true)
+			end,
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			saveSoundIndex = false, -- or function returning a boolean (optional) If set to false (default) the internal soundName will be saved. If set to true the selected sound's index will be saved to the SavedVariables (the index might change if sounds get inserted later!).
+			showSoundName = true, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be shown at the label of the slider, and at the tooltip too
+			playSound = false, -- or function returning a boolean (optional) If set to true (default) the selected sound name will be played via function PlaySound
+			playSoundData = function() return getPreviewDataTab("MovementBlocked", 1) end, --{number playCount, number delayInMS, number increaseVolume}, -- table or function returning a table. If this table is provided the chosen sound will be played playCount (default is 1) times after each other, with a delayInMS (default is 0) in milliseconds in between, and each played sound will be played increaseVolume times (directly at the same time) to increase the volume (default is 1, max is 10) (optional)
+			showPlaySoundButton = true,
+			noAutomaticSoundPreview = false,
+			readOnly = false, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.tryingToMoveButBlockedSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			--requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.tryingToMoveButBlockedSoundName, -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			reference = "FCOAB_LAM_MOVEMENT_TRYING_TO_MOVE_BUT_BLOCKED_SOUNDSLIDER" -- unique global reference to control (optional)
+		},
+		{
+			type = "slider",
+			name = "Movement blocked: Volume", -- or string id or function returning a string
+			tooltip = "Playing the same sound multiple times increases the volume. Choose how often you want to repeat the played sound if your movement is blocked to increase the volume with this slider.",
+			getFunc = function() return settings.tryingToMoveButBlockedSoundRepeat end,
+			setFunc = function(value)
+				settings.tryingToMoveButBlockedSoundRepeat = value
+				outputLAMSettingsChangeToChat(tos(value), "Movement blocked: Volume")
+			end,
+			min = 1,
+			max = 10,
+			step = 1, -- (optional)
+			clampInput = true, -- boolean, if set to false the input won't clamp to min and max and allow any number instead (optional)
+			--clampFunction = function(value, min, max) return math.max(math.min(value, max), min) end, -- function that is called to clamp the value (optional)
+			decimals = 0, -- when specified the input value is rounded to the specified number of decimals (optional)
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.tryingToMoveButBlockedSound end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.tryingToMoveButBlockedSoundRepeat, -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			--reference = "MyAddonSlider", -- unique global reference to control (optional)
+			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
+		},
 	}
 
 	LAM:RegisterOptionControls(addonName, optionsTable)
@@ -3026,7 +3268,9 @@ end
 --==============================================================================
 --===== HOOKS BEGIN ============================================================
 --==============================================================================
-local function CreateCompassHooks()
+local compassPreHooksDone = false
+local compassQuestPreHooksDone = false
+CreateCompassHooks = function()
 	--Update compass variables
 	zosVars.compass = COMPASS
 	compass = zosVars.compass
@@ -3035,90 +3279,109 @@ local function CreateCompassHooks()
 
 	local settings = FCOAB.settingsVars.settings
 	local compassTrackedQuestSound = settings.compassTrackedQuestSound
+	local compassPlayerWaypointSound = settings.compassPlayerWaypointSound
+	local compassGroupRallyPointSound = settings.compassGroupRallyPointSound
+	local compassToChatText = settings.compassToChatText
 
-	if compassTrackedQuestSound == true or settings.compassPlayerWaypointSound == true or settings.compassGroupRallyPointSound == true then
+	if compassTrackedQuestSound == true or compassPlayerWaypointSound == true or compassGroupRallyPointSound == true or compassToChatText == true then
 		if compassCenterOverPinLabel ~= nil then
+			--Hooks were already loaded?
+			if not compassPreHooksDone then
 			--This will be called way too often, multiple times a second...
-			ZO_PreHook(compassCenterOverPinLabel, "SetText", function(ctrl, newText)
-				local now = GetGameTimeMilliseconds()
+				ZO_PreHook(compassCenterOverPinLabel, "SetText", function(ctrl, newText)
+					settings = FCOAB.settingsVars.settings
+					compassTrackedQuestSound = settings.compassTrackedQuestSound
+					compassPlayerWaypointSound = settings.compassPlayerWaypointSound
+					compassGroupRallyPointSound = settings.compassGroupRallyPointSound
+					compassToChatText = settings.compassToChatText
 
-				--if lastCompassCenterOverPinLabeltext == nil or lastCompassCenterOverPinLabeltext ~= newText then
-				settings = FCOAB.settingsVars.settings
+					--Hook is still active?
+					if not not compassToChatText and not compassPlayerWaypointSound and not compassGroupRallyPointSound and not compassTrackedQuestSound then return end
 
-				--lastCompassCenterOverPinLabeltext = newText
+					--Get current timestam
+					local now = GetGameTimeMilliseconds()
 
-				if settings.compassToChatText == true and newText and newText ~= "" then
-					local lastCommpass2Chat = lastPlayed.compass2Chat
-					if lastCommpass2Chat == 0 or now >= (lastCommpass2Chat + compassToChatDelay) then
-						if lastAddedToChat == nil or lastAddedToChat == "" or lastAddedToChat ~= newText then
-							lastAddedToChat = newText
-							local compassStr = getCompassChatText(newText)
-							--Check if compass text is a group member, or the leader, or a group ralley point
-							addToChatWithPrefix(compassStr .. newText)
+					--Current compass' pinType and pinDescription text
+					local compassPinType = FCOAB._bestPinType
+					local compassPinDescription = FCOAB._bestPinDescription
+
+					--Compass to chat
+					if compassToChatText == true and newText and newText ~= "" then
+						local lastCommpass2Chat = lastPlayed.compass2Chat
+						if lastCommpass2Chat == 0 or now >= (lastCommpass2Chat + compassToChatDelay) then
+							local doCompassTextOutput = true
+							--Check if the compassPin is the group leader and skip the chat output?
+							if settings.compassToChatTextSkipGroupLeader == true and (compassPinType ~= nil and groupLeaderPinTypes[compassPinType]) then
+								doCompassTextOutput = false
+								--Check if the compassPin is a group member and skip the chat output?
+							elseif settings.compassToChatTextSkipGroupMember == true and (compassPinType ~= nil and groupPinTypes[compassPinType]) then
+								doCompassTextOutput = false
+							end
+
+							if doCompassTextOutput == true then
+								if lastAddedToChat == nil or lastAddedToChat == "" or lastAddedToChat ~= newText then
+									lastAddedToChat = newText
+									local compassStr = getCompassChatText(newText)
+									--Check if compass text is a group member, or the leader, or a group ralley point
+									addToChatWithPrefix(compassStr .. newText)
+								end
+							end
 						end
 					end
-				end
 
-				--[[
-				SI_COMPASS_NORTH_ABBREVIATION
-				SI_COMPASS_EAST_ABBREVIATION
-				SI_COMPASS_SOUTH_ABBREVIATION
-				SI_COMPASS_WEST_ABBREVIATION
-				]]
-				--Player waypoint sound
-				if settings.compassPlayerWaypointSound == true and settings.compassPlayerWaypointSoundName ~= CON_SOUND_NONE and hasWaypoint() then
-					--Your waypoint is currently in the middle
-					local normX, normY = gmpw()
-					local bestPinType = FCOAB._bestPinType
-					if normX ~= nil and normY ~= nil and ((bestPinType ~= nil and playerWaypointPinTypes[bestPinType]) or (newText and newText == yourPlayersWaypointStr)) then
-						local lastPlayedWaypoint = lastPlayed.waypoint
-						local waitTime = settings.compassPlayerWaypointSoundDelay * 1000
+					--Player waypoint sound
+					if compassPlayerWaypointSound == true and settings.compassPlayerWaypointSoundName ~= CON_SOUND_NONE and hasWaypoint() then
+						--Your waypoint is currently in the middle
+						local normX, normY = gmpw()
+						if normX ~= nil and normY ~= nil and ((compassPinType ~= nil and playerWaypointPinTypes[compassPinType]) or (newText and newText == yourPlayersWaypointStr)) then
+							local lastPlayedWaypoint = lastPlayed.waypoint
+							local waitTime = settings.compassPlayerWaypointSoundDelay * 1000
 
-						--d("[FCOAB]ZO_CompassCenterOverPinLabel - Waypoint - waitTime: " ..tos(waitTime) .. ", " ..tos(newText) .. ", x: " ..tos(normX) .. ", y: " ..tos(normY))
-						if lastPlayedWaypoint == 0 or now >= (lastPlayedWaypoint + waitTime) then
-							lastPlayed.waypoint = now
-							playSoundLoopNow(settings.compassPlayerWaypointSoundName, settings.compassPlayerWaypointSoundRepeat)
+							--d("[FCOAB]ZO_CompassCenterOverPinLabel - Waypoint - waitTime: " ..tos(waitTime) .. ", " ..tos(newText) .. ", x: " ..tos(normX) .. ", y: " ..tos(normY))
+							if lastPlayedWaypoint == 0 or now >= (lastPlayedWaypoint + waitTime) then
+								lastPlayed.waypoint = now
+								playSoundLoopNow(settings.compassPlayerWaypointSoundName, settings.compassPlayerWaypointSoundRepeat)
+							end
 						end
 					end
-				end
 
-				--Group rally point sound
-				if settings.compassGroupRallyPointSound == true and settings.compassGroupRallyPointSoundName ~= CON_SOUND_NONE and IsUnitGrouped(CON_PLAYER) and hasRallyPoint() then
-					--Your rallypoint is currently in the middle
-					local normX, normY = gmrp()
-					if normX ~= nil and normY ~= nil and newText and newText == rallyPointStr then
-						local lastPlayedRallyPoint = lastPlayed.rallyPoint
-						local waitTime = settings.compassGroupRallyPointSoundDelay * 1000
+					--Group rally point sound
+					if compassGroupRallyPointSound == true and settings.compassGroupRallyPointSoundName ~= CON_SOUND_NONE and IsUnitGrouped(CON_PLAYER) and hasRallyPoint() then
+						--Your rallypoint is currently in the middle
+						local normX, normY = gmrp()
+						if normX ~= nil and normY ~= nil and ((compassPinType ~= nil and groupRallyPointPinTypes[compassPinType]) or (newText and newText == rallyPointStr)) then
+							local lastPlayedRallyPoint = lastPlayed.rallyPoint
+							local waitTime = settings.compassGroupRallyPointSoundDelay * 1000
 
-						if lastPlayedRallyPoint == 0 or now >= (lastPlayedRallyPoint + waitTime) then
-							lastPlayed.rallyPoint = now
-							playSoundLoopNow(settings.compassGroupRallyPointSoundName, settings.compassGroupRallyPointSoundRepeat)
+							if lastPlayedRallyPoint == 0 or now >= (lastPlayedRallyPoint + waitTime) then
+								lastPlayed.rallyPoint = now
+								playSoundLoopNow(settings.compassGroupRallyPointSoundName, settings.compassGroupRallyPointSoundRepeat)
+							end
 						end
 					end
-				end
 
-				--Active quest found?
-				if settings.compassTrackedQuestSound == true and settings.compassTrackedQuestSoundName ~= CON_SOUND_NONE and lastTrackedQuestIndex ~= nil and lastTrackedQuestIndex ~= 0 then
-					local questPinType = FCOAB._bestPinType
-					local questPinDescription = FCOAB._bestPinDescription
-					if questPinType ~= nil and (trackedQuestPinTypes[questPinType] or assistedQuestPinTypes[questPinType]) and questPinDescription ~= nil and newText and questPinDescription == newText then
-						local lastPlayedQuest = lastPlayed.quest
-						local waitTime = settings.compassTrackedQuestSoundDelay * 1000
+					--Active quest found?
+					if compassTrackedQuestSound == true and settings.compassTrackedQuestSoundName ~= CON_SOUND_NONE and lastTrackedQuestIndex ~= nil and lastTrackedQuestIndex ~= 0 then
+						if compassPinType ~= nil and (trackedQuestPinTypes[compassPinType] or assistedQuestPinTypes[compassPinType]) and compassPinDescription ~= nil and newText and compassPinDescription == newText then
+							local lastPlayedQuest = lastPlayed.quest
+							local waitTime = settings.compassTrackedQuestSoundDelay * 1000
 
-						--d("[FCOAB]ZO_CompassCenterOverPinLabel - Quest - waitTime: " ..tos(waitTime) .. ", questPinType: " ..tos(questPinType) .. ", questPinDescription: " .. tos(questPinDescription) ..", newText: " ..tos(newText) .. ", lastTrackedQuestIndex: " ..tos(lastTrackedQuestIndex))
-						if lastPlayedQuest == 0 or now >= (lastPlayedQuest + waitTime) then
-							lastPlayed.quest = now
-							playSoundLoopNow(settings.compassTrackedQuestSoundName, settings.compassTrackedQuestSoundRepeat)
+							--d("[FCOAB]ZO_CompassCenterOverPinLabel - Quest - waitTime: " ..tos(waitTime) .. ", questPinType: " ..tos(questPinType) .. ", questPinDescription: " .. tos(questPinDescription) ..", newText: " ..tos(newText) .. ", lastTrackedQuestIndex: " ..tos(lastTrackedQuestIndex))
+							if lastPlayedQuest == 0 or now >= (lastPlayedQuest + waitTime) then
+								lastPlayed.quest = now
+								playSoundLoopNow(settings.compassTrackedQuestSoundName, settings.compassTrackedQuestSoundRepeat)
+							end
 						end
 					end
-				end
-			end)
+				end)
+				compassPreHooksDone = true
+			end
 		end
 	end
 
 
 	--Quest tracker
-	if compassTrackedQuestSound == true then
+	if compassTrackedQuestSound == true and not compassQuestPreHooksDone then
 		local function onQuestTrackerTrackingStateChanged(questTracker, tracked, trackType, arg1, arg2)
 			--d("[FCOAB]onQuestTrackerTrackingStateChanged-tracked: " ..tos(tracked) .. ", type: " ..tos(trackType) .. ", arg1: " ..tos(arg1) .. ", arg2: " ..tos(arg2))
 			if trackType == TRACK_TYPE_QUEST and tracked == true then
@@ -3224,6 +3487,8 @@ local function CreateCompassHooks()
 				end
 			end
 		end
+
+		compassQuestPreHooksDone = true
 	end
 end
 
@@ -3286,8 +3551,16 @@ local function onPlayerActivated()
 	if isGroupedAndGroupLeaderGivenAndShouldSoundPlayByFCOAB() then
 		onGroupStatusChange(false, false, false, true)
 	end
+
+	--Play sound is player is trying to move but cannot move (and is not stunned)
+	runTryingToMoveButBlockedUpdates(true, nil)
 end
 
+local function onPlayerDead(eventId)
+	onGroupStatusChange(false, false, true, false)
+
+	runTryingToMoveButBlockedUpdates(false, true)
+end
 
 ------------------------------------------------------------------------------------------------------------------------
 local function CreateReticleHooks()
@@ -3343,89 +3616,92 @@ local function LoadUserSettings()
 
     --Pre-set the deafult values
     FCOAB.settingsVars.defaults = {
-		thisAddonLAMSettingsSetFuncToChat = true,
-
-		--From Circonian's WaypointIt addon!
 		["WAYPOINT_DELTA_SCALE"] = 3,
 		["WAYPOINT_DELTA_SCALE_MAX"] = 5000,
 
-		--Last * data stored in SV
-		lastTrackedQuestIndex = 0,
-		currentWaypoint = nil,
+		["autoRemoveWaypoint"] = true,
 
-		--FCOAB adddon settings
-		chatAddonPrefix = "´", --read as Akut
+		["chatAddonPrefix"] = "",
 
-		compassTrackedQuestSound = true,
-		compassTrackedQuestSoundName = "Backpack_Open",
-		compassTrackedQuestSoundDelay = 3,
-		compassTrackedQuestSoundRepeat = 2,
+		["combatEndSound"] = true,
+		["combatEndSoundName"] = "Tribute_Summary_ProgressBarDecrease",
+		["combatEndSoundRepeat"] = 4,
+		["combatStartEndInfo"] = true,
+		["combatStartSound"] = true,
+		["combatStartSoundName"] = "Tribute_Summary_ProgressBarIncrease",
+		["combatStartSoundRepeat"] = 4,
 
-		compassPlayerWaypointSound = true,
-		compassPlayerWaypointSoundName = "Click_Edit",
-		compassPlayerWaypointSoundDelay = 3,
-		compassPlayerWaypointSoundRepeat = 2,
-
-		compassGroupRallyPointSound = true,
-		compassGroupRallyPointSoundName = "Housing_StoreItem",
-		compassGroupRallyPointSoundDelay = 3,
-		compassGroupRallyPointSoundRepeat = 2,
-
-		compassToChatText = true,
-
-		reticleUnitToChatText = true,
-		reticleUnitIgnoreCritter = true,
-		reticleToChatInCombat = false,
-		reticleToChatUnitDisableInGroup = false,
-
-		reticlePlayerToChatText = true,
-		reticlePlayerLevel = true,
-		reticlePlayerRace = true,
-		reticlePlayerClass = true,
-		reticlePlayerAlliance = true,
-		reticleToChatPlayerDisableInGroup = false,
-
-		reticleInteractionToChatText = true,
-		reticleToChatInteractionDisableInGroup = false,
-
-		autoRemoveWaypoint = true,
-
-		groupLeaderSound = true,
-		groupLeaderSoundName = "Champion_StarStageUp",
-		groupLeaderSoundDelay = 3,
-		groupLeaderSoundRepeat = 2,
-		groupLeaderSoundDistance = 3, --meters
-		groupLeaderDistanceToChat = false,
-		groupLeaderSoundAngle = 20, --degree, 20°
-
-		combatStartEndInfo = true,
-
-		combatStartSound = true,
-		combatStartSoundName = "Tribute_Summary_ProgressBarIncrease",
-		combatStartSoundRepeat = 4,
-
-		combatEndSound = true,
-		combatEndSoundName = "Tribute_Summary_ProgressBarDecrease",
-		combatEndSoundRepeat = 4,
-
-		combatTipToChat = true,
-		combatTipSound = true,
-		combatTipSoundName = {
-			[1] = "Dyeing_Swatch_Selected", --block
-			[2] = "Dyeing_Swatch_Selected", --offBalance
-			[3] = "Dyeing_Swatch_Selected", --interrupt
-			[4] = "Dyeing_Swatch_Selected", --dodge
+		["combatTipSound"] = true,
+		["combatTipSoundName"] =
+		{
+			[1] = "Item_On_Cooldown",
+			[2] = "Friend_InviteReceived",
+			[3] = "Friend_InviteReceived",
+			[4] = "DaedricArtifact_Revealed",
 		},
-		combatTipSoundRepeat = {
-			[1] = 3,
+		["combatTipSoundRepeat"] =
+		{
+			[1] = 4,
 			[2] = 3,
 			[3] = 3,
 			[4] = 3,
 		},
+		["combatTipToChat"] = true,
 
-		showReticleOverUnitHealthInChat = true,
+		["compassGroupRallyPointSound"] = true,
+		["compassGroupRallyPointSoundDelay"] = 3,
+		["compassGroupRallyPointSoundName"] = "GroupElection_ResultLost",
+		["compassGroupRallyPointSoundRepeat"] = 1,
 
-		preferredGroupMountDisplayName = nil,
+		["compassPlayerWaypointSound"] = true,
+		["compassPlayerWaypointSoundDelay"] = 4,
+		["compassPlayerWaypointSoundName"] = "Group_Disband",
+		["compassPlayerWaypointSoundRepeat"] = 1,
+
+		["compassTrackedQuestSound"] = true,
+		["compassTrackedQuestSoundDelay"] = 4,
+		["compassTrackedQuestSoundName"] = "GroupElection_Requested",
+		["compassTrackedQuestSoundRepeat"] = 1,
+		["compassToChatText"] = true,
+		["compassToChatTextSkipGroupLeader"] = false,
+		["compassToChatTextSkipGroupMembers"] = false,
+
+		["groupLeaderDistanceToChat"] = false,
+		["groupLeaderSound"] = true,
+		["groupLeaderSoundAngle"] = 40,
+		["groupLeaderSoundDelay"] = 3.5000000000,
+		["groupLeaderSoundDistance"] = 4,
+		["groupLeaderSoundName"] = "GiftInventoryView_FanfareBlast",
+		["groupLeaderSoundRepeat"] = 2,
+
+		["preferredGroupMountDisplayName"] = "",
+
+		["reticleInteractionToChatText"] = true,
+		["reticleToChatInteractionDisableInGroup"] = false,
+
+		["reticlePlayerToChatText"] = false,
+		["reticlePlayerAlliance"] = false,
+		["reticlePlayerClass"] = true,
+		["reticlePlayerLevel"] = false,
+		["reticlePlayerRace"] = false,
+		["reticleToChatPlayerDisableInGroup"] = true,
+		["reticleToChatUnitDisableInGroup"] = true,
+		["reticleUnitToChatText"] = true,
+		["reticleUnitIgnoreCritter"] = true,
+
+		["reticleToChatInCombat"] = false,
+
+		["showReticleOverUnitHealthInChat"] = true,
+
+		["thisAddonLAMSettingsSetFuncToChat"] = true,
+
+		["tryingToMoveButBlockedSound"] = true,
+		["tryingToMoveButBlockedSoundName"] = "Enchanting_EssenceRune_Placed",
+		["tryingToMoveButBlockedSoundRepeat"] = 4,
+
+		["lastTrackedQuestIndex"] = 1,
+
+		["targetMarkersSetInCombatToEnemies"] = true,
     }
 	local defaults = FCOAB.settingsVars.defaults
 
@@ -3489,7 +3765,7 @@ local function FCOAccessibility_Loaded(eventCode, addOnNameOfEachAddonLoaded)
 
 	--Death
 	EM:RegisterForEvent(addonName .. "_EVENT_PLAYER_ALIVE",				EVENT_PLAYER_ALIVE,			onPlayerActivated)
-	EM:RegisterForEvent(addonName .. "_EVENT_PLAYER_DEAD",				EVENT_PLAYER_DEAD,			function() onGroupStatusChange(false, false, true, false) end)
+	EM:RegisterForEvent(addonName .. "_EVENT_PLAYER_DEAD",				EVENT_PLAYER_DEAD,			onPlayerDead)
 
 	--Group
 	EM:RegisterForEvent(addonName .. "_EVENT_GROUP_MEMBER_LEFT", 		EVENT_GROUP_MEMBER_LEFT, 	function() onGroupStatusChange(true, false, false, false) end)
