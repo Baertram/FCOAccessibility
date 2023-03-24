@@ -13,10 +13,10 @@ ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_UNIT_TO_CHAT
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_UNIT_HEALTH_TO_CHAT",                       "Tog. Unit health to chat")
 
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT",                    "Tog. reticle player to chat")
-ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT_DISABLE_GROUPED",    "Tog. player to chat not grouped")
+ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT_NOT_GROUPED",        "Tog. player to chat not grouped")
 
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT",                  "Tog. interaction to chat")
-ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT_DISABLE_GROUPED",  "Tog. interaction to chat not grouped")
+ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT_NOT_GROUPED",      "Tog. interaction to chat not grouped")
 
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_LAM_SETTING_MOVEMENT_BLOCKED_SOUND",                    "Tog. Movement blocked sound")
 

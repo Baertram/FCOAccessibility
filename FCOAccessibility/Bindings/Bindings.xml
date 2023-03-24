@@ -45,14 +45,14 @@
             <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT">
                 <Down>FCOAB.ToggleLAMSetting("reticlePlayerToChatText")</Down>
             </Action>
-            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT_DISABLE_GROUPED">
+            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_PLAYER_TO_CHAT_NOT_GROUPED">
                 <Down>FCOAB.ToggleLAMSetting("reticleToChatPlayerDisableInGroup")</Down>
             </Action>
 
             <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT">
                 <Down>FCOAB.ToggleLAMSetting("reticleInteractionToChatText")</Down>
             </Action>
-            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT_DISABLE_GROUPED">
+            <Action name="FCOAB_TOGGLE_LAM_SETTING_RETICLE_INTERACT_TO_CHAT_NOT_GROUPED">
                 <Down>FCOAB.ToggleLAMSetting("reticleToChatInteractionDisableInGroup")</Down>
             </Action>
 
