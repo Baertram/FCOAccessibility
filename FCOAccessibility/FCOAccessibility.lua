@@ -1786,7 +1786,7 @@ end
 
 
 local function onPlayerCombatState(eventId, inCombat)
-d("[FCOAB]PlayerCombat: " ..tos(inCombat))
+--d("[FCOAB]PlayerCombat: " ..tos(inCombat))
 	--New combat: Reset the last hit target names and unitIds
 	local settings = FCOAB.settingsVars.settings
 	if inCombat == true then
