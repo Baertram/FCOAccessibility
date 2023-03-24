@@ -60,6 +60,8 @@ local CON_COMPANION = "companion"
 
 local CON_CRITTER_MAX_HEALTH = 1
 
+local CON_NUM_TARGET_MARKERS = TARGET_MARKER_TYPE_EIGHT
+
 --Chat output priroties. Hgher values will be shown more early
 --[[
 local CON_PRIO_CHAT_LOW = 					1
@@ -267,13 +269,16 @@ local alreadyInteractedNPCNames    = {}
 local reticleOverLastHealthPercent = 0
 local reticleOverChangedEventRegistered = false
 local reticleOverPlayerChangedEventRegistered = false
+local combatEventRegistered = false
 
 local hitTargetsUnitIds = {}
 local hitTargetsNames = {}
 local targetMarkersApplied = {}
-FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
-FCOAB._hitTargetsNames = hitTargetsNames
-FCOAB._targetMarkersApplied = targetMarkersApplied
+local targetMarkersNumbersApplied = {}
+--FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+--FCOAB._hitTargetsNames = hitTargetsNames
+--FCOAB._targetMarkersApplied = targetMarkersApplied
+--FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
 
 local hadLastCombatAnyChatMessage = false
 local wasNarrationQueueCleared = false
@@ -1112,6 +1117,24 @@ local function getReticleOverUnitDataAndPrepareChatText(healthCurrent, healthMax
 	return unitPrefix, unitSuffix, unitName, unitDisplayName, unitCaption
 end
 
+------------------------------------------------------------------------------------------------------------------------
+
+local function removeActualTargetMarkerAtReticleUnit()
+	local activeTargetMarkerType = GetUnitTargetMarkerType(CON_RETICLE)
+--d(">target = reticle, Marker: " ..tos(activeTargetMarkerType))
+	if activeTargetMarkerType ~= 0 then
+		--Remove the marker
+		AssignTargetMarkerToReticleTarget(activeTargetMarkerType)
+		local activeTargetMarkerTypeNow = GetUnitTargetMarkerType(CON_RETICLE)
+		if activeTargetMarkerTypeNow == 0 then
+--d("<marker removed: " ..tos(activeTargetMarkerType))
+			targetMarkersNumbersApplied[activeTargetMarkerType] = nil
+		end
+	end
+--FCOAB._targetMarkersApplied = targetMarkersApplied
+--FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
+end
+
 local combatTargetTypesFiltered = {
 	[COMBAT_UNIT_TYPE_OTHER] = false,
 	[COMBAT_UNIT_TYPE_NONE] = false,
@@ -1123,12 +1146,115 @@ local combatTargetTypesFiltered = {
 	[COMBAT_UNIT_TYPE_PLAYER_COMPANION] = true,
 }
 local actionResultsTracked = {
-	[ACTION_RESULT_DAMAGE] = true,
-	[ACTION_RESULT_CRITICAL_DAMAGE] = true,
-	[ACTION_RESULT_DAMAGE_SHIELDED] = true,
-	[ACTION_RESULT_WRECKING_DAMAGE] = true,
-	[ACTION_RESULT_BLOCKED_DAMAGE] = true,
-	[ACTION_RESULT_PRECISE_DAMAGE] = true,
+	[ACTION_RESULT_ABILITY_ON_COOLDOWN] = false, -- 2080
+	[ACTION_RESULT_ABSORBED] = true, -- 2120
+	[ACTION_RESULT_BAD_TARGET] = false, -- 2040
+	[ACTION_RESULT_BLADETURN] = true, -- 2360
+	[ACTION_RESULT_BLOCKED] = true, -- 2150
+	[ACTION_RESULT_BLOCKED_DAMAGE] = true, -- 2151
+	[ACTION_RESULT_BUSY] = false, -- 2030
+	[ACTION_RESULT_CANNOT_USE] = false, -- 2290
+	[ACTION_RESULT_CANT_SEE_TARGET] = false, -- 2330
+	[ACTION_RESULT_CANT_SWAP_HOTBAR_IS_OVERRIDDEN] = false, -- 3450
+	[ACTION_RESULT_CANT_SWAP_WHILE_CHANGING_GEAR] = false, -- 3410
+	[ACTION_RESULT_CASTER_DEAD] = false, -- 2060
+	[ACTION_RESULT_CHARMED] = false, -- 3510
+	[ACTION_RESULT_CRITICAL_DAMAGE] = true, -- 2
+	[ACTION_RESULT_CRITICAL_HEAL] = false, -- 32
+	[ACTION_RESULT_DAMAGE] = true, -- 1
+	[ACTION_RESULT_DAMAGE_SHIELDED] = true, -- 2460
+	[ACTION_RESULT_DEFENDED] = true, -- 2190
+	[ACTION_RESULT_DIED] = false, -- 2260
+	[ACTION_RESULT_DIED_COMPANION_XP] = false, -- 3480
+	[ACTION_RESULT_DIED_XP] = false, -- 2262
+	[ACTION_RESULT_DISARMED] = true, -- 2430
+	[ACTION_RESULT_DISORIENTED] = true, -- 2340
+	[ACTION_RESULT_DODGED] = true, -- 2140
+	[ACTION_RESULT_DOT_TICK] = true, -- 1073741825
+	[ACTION_RESULT_DOT_TICK_CRITICAL] = true, -- 1073741826
+	[ACTION_RESULT_FAILED] = false, -- 2110
+	[ACTION_RESULT_FAILED_REQUIREMENTS] = false, -- 2310
+	[ACTION_RESULT_FAILED_SIEGE_CREATION_REQUIREMENTS] = false, -- 3100
+	[ACTION_RESULT_FALLING] = false, -- 2500
+	[ACTION_RESULT_FALL_DAMAGE] = false, -- 2420
+	[ACTION_RESULT_FEARED] = true, -- 2320
+	[ACTION_RESULT_GRAVEYARD_DISALLOWED_IN_INSTANCE] = false, -- 3080
+	[ACTION_RESULT_GRAVEYARD_TOO_CLOSE] = false, -- 3030
+	[ACTION_RESULT_HEAL] = false, -- 16
+	[ACTION_RESULT_HEAL_ABSORBED] = false, -- 3470
+	[ACTION_RESULT_HOT_TICK] = false, -- 1073741840
+	[ACTION_RESULT_HOT_TICK_CRITICAL] = false, -- 1073741856
+	[ACTION_RESULT_IMMUNE] = true, -- 2000
+	[ACTION_RESULT_INSUFFICIENT_RESOURCE] = false, -- 2090
+	[ACTION_RESULT_INTERCEPTED] = true, -- 2410
+	[ACTION_RESULT_INTERRUPT] = true, -- 2230
+	[ACTION_RESULT_INVALID] = false, -- -1
+	[ACTION_RESULT_INVALID_FIXTURE] = false, -- 2810
+	[ACTION_RESULT_INVALID_JUSTICE_TARGET] = false, -- 3420
+	[ACTION_RESULT_INVALID_TERRAIN] = false, -- 2800
+	[ACTION_RESULT_IN_AIR] = false, -- 2510
+	[ACTION_RESULT_IN_COMBAT] = false, -- 2300
+	[ACTION_RESULT_IN_ENEMY_KEEP] = false, -- 2610
+	[ACTION_RESULT_IN_ENEMY_OUTPOST] = false, -- 2613
+	[ACTION_RESULT_IN_ENEMY_RESOURCE] = false, -- 2612
+	[ACTION_RESULT_IN_ENEMY_TOWN] = false, -- 2611
+	[ACTION_RESULT_IN_HIDEYHOLE] = false, -- 3440
+	[ACTION_RESULT_KILLED_BY_DAEDRIC_WEAPON] = false, -- 3461
+	[ACTION_RESULT_KILLED_BY_SUBZONE] = false, -- 3130
+	[ACTION_RESULT_KILLING_BLOW] = false, -- 2265
+	[ACTION_RESULT_KNOCKBACK] = true, -- 2475
+	[ACTION_RESULT_LEVITATED] = true, -- 2400
+	[ACTION_RESULT_MERCENARY_LIMIT] = false, -- 3140
+	[ACTION_RESULT_MISS] = true, -- 2180
+	[ACTION_RESULT_MISSING_EMPTY_SOUL_GEM] = false, -- 3040
+	[ACTION_RESULT_MISSING_FILLED_SOUL_GEM] = false, -- 3060
+	[ACTION_RESULT_MOBILE_GRAVEYARD_LIMIT] = false, -- 3150
+	[ACTION_RESULT_MOUNTED] = false, -- 3070
+	[ACTION_RESULT_MUST_BE_IN_OWN_KEEP] = false, -- 2630
+	[ACTION_RESULT_NOT_ENOUGH_INVENTORY_SPACE] = false, -- 3430
+	[ACTION_RESULT_NOT_ENOUGH_INVENTORY_SPACE_SOUL_GEM] = false, -- 3050
+	[ACTION_RESULT_NOT_ENOUGH_SPACE_FOR_SIEGE] = false, -- 3090
+	[ACTION_RESULT_NO_LOCATION_FOUND] = false, -- 2700
+	[ACTION_RESULT_NO_RAM_ATTACKABLE_TARGET_WITHIN_RANGE] = false, -- 2910
+	[ACTION_RESULT_NO_WEAPONS_TO_SWAP_TO] = false, -- 3400
+	[ACTION_RESULT_NPC_TOO_CLOSE] = false, -- 2640
+	[ACTION_RESULT_OFFBALANCE] = true, -- 2440
+	[ACTION_RESULT_PACIFIED] = true, -- 2390
+	[ACTION_RESULT_PARRIED] = true, -- 2130
+	[ACTION_RESULT_PARTIAL_RESIST] = true, -- 2170
+	[ACTION_RESULT_POWER_DRAIN] = true, -- 64
+	[ACTION_RESULT_POWER_ENERGIZE] = true, -- 128
+	[ACTION_RESULT_PRECISE_DAMAGE] = true, -- 4
+	[ACTION_RESULT_QUEUED] = false, -- 2350
+	[ACTION_RESULT_RAM_ATTACKABLE_TARGETS_ALL_DESTROYED] = false, -- 3120
+	[ACTION_RESULT_RAM_ATTACKABLE_TARGETS_ALL_OCCUPIED] = false, -- 3110
+	[ACTION_RESULT_RECALLING] = false, -- 2520
+	[ACTION_RESULT_REFLECTED] = true, -- 2111
+	[ACTION_RESULT_REINCARNATING] = false, -- 3020
+	[ACTION_RESULT_RESIST] = true, -- 2160
+	[ACTION_RESULT_RESURRECT] = false, -- 2490
+	[ACTION_RESULT_ROOTED] = true, -- 2480
+	[ACTION_RESULT_SELF_PLAYING_TRIBUTE] = false, -- 3490
+	[ACTION_RESULT_SIEGE_LIMIT] = false, -- 2620
+	[ACTION_RESULT_SIEGE_NOT_ALLOWED_IN_ZONE] = false, -- 2605
+	[ACTION_RESULT_SIEGE_TOO_CLOSE] = false, -- 2600
+	[ACTION_RESULT_SILENCED] = true, -- 2010
+	[ACTION_RESULT_SNARED] = true, -- 2025
+	[ACTION_RESULT_SOUL_GEM_RESURRECTION_ACCEPTED] = false, -- 3460
+	[ACTION_RESULT_SPRINTING] = false, -- 3000
+	[ACTION_RESULT_STAGGERED] = true, -- 2470
+	[ACTION_RESULT_STUNNED] = true, -- 2020
+	[ACTION_RESULT_SWIMMING] = false, -- 3010
+	[ACTION_RESULT_TARGET_DEAD] = true, -- 2050
+	[ACTION_RESULT_TARGET_NOT_IN_VIEW] = false, -- 2070
+	[ACTION_RESULT_TARGET_NOT_PVP_FLAGGED] = false, -- 2391
+	[ACTION_RESULT_TARGET_OUT_OF_RANGE] = false, -- 2100
+	[ACTION_RESULT_TARGET_PLAYING_TRIBUTE] = false, -- 3500
+	[ACTION_RESULT_TARGET_TOO_CLOSE] = false, -- 2370
+	[ACTION_RESULT_UNEVEN_TERRAIN] = false, -- 2900
+	[ACTION_RESULT_WEAPONSWAP] = false, -- 2450
+	[ACTION_RESULT_WRECKING_DAMAGE] = true, -- 8
+	[ACTION_RESULT_WRONG_WEAPON] = false, -- 2380
 }
 local allowedSourceTypes = {
 	[COMBAT_UNIT_TYPE_PLAYER] = true,
@@ -1145,8 +1271,9 @@ local enemyNumberToTargetMarkerType = {
 	[7] = TARGET_MARKER_TYPE_SEVEN,
 	[8] = TARGET_MARKER_TYPE_EIGHT,
 }
-local enemyNumber = 0
 local function onCombatEvent(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
+	--Which source? Only for player (pets/companions)
+
 	--Only in combat, for non filtered targetTypes, for tracked actionResults, and if the targetUnitId wasn't added before already
 	--and if there is no target unit marker on the enemy yet
 	if IsUnitInCombat(CON_PLAYER) == false
@@ -1161,33 +1288,80 @@ local function onCombatEvent(eventId, result, isError, abilityName, abilityGraph
 		return
 	end
 
-	--Which source? Only for player (pets/companions)
 	--local targetNameClean = zo_strformat(SI_UNIT_NAME, targetName)
-d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType))
 	hitTargetsUnitIds[targetUnitId] = targetName
 	hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
 	hitTargetsNames[targetName][targetUnitId] = true
 
 --for debugging
-FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
-FCOAB._hitTargetsNames = hitTargetsNames
-FCOAB._targetMarkersApplied = targetMarkersApplied
+--FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+--FCOAB._hitTargetsNames = hitTargetsNames
 
-	--Automatically apply the target marker to the enemy, if the same enemy of the combatevent here is below the reticle
-	local unitNameBelowReticle = GetUnitName(CON_RETICLE)
-	local companionActive = HasActiveCompanion()
-	if (IsUnitActivelyEngaged(CON_RETICLE) and (not companionActive or (companionActive == true and not AreUnitsEqual(CON_COMPANION, CON_RETICLE)))
-		and unitNameBelowReticle == targetName) then
-		local activeTargetMarkerType = GetUnitTargetMarkerType(CON_RETICLE)
-d(">combat target = reticle, Marker: " ..tos(activeTargetMarkerType))
-		if activeTargetMarkerType == nil or activeTargetMarkerType == 0 then
-			enemyNumber = enemyNumber + 1
-			zo_clamp(enemyNumber, TARGET_MARKER_TYPE_ONE, TARGET_MARKER_TYPE_EIGHT)
-			local targetMarkerType = enemyNumberToTargetMarkerType[enemyNumber]
-			AssignTargetMarkerToReticleTarget(targetMarkerType)
-			targetMarkersApplied[targetUnitId] = targetMarkerType
+	local unitNameBelowReticle = GetRawUnitName(CON_RETICLE)
+--d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "/" .. tos(unitNameBelowReticle) .. " ("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType) .. ", enemyNumber: " ..tos(enemyNumber))
+
+	--Unit died!
+	if result == ACTION_RESULT_TARGET_DEAD then
+		--Remove the actual target marker if needed
+		removeActualTargetMarkerAtReticleUnit()
+		return
+	end
+
+	--Exclude group members!
+	if IsUnitGrouped(CON_PLAYER) then
+		local playerGroupIndex = GetGroupIndexByUnitTag(CON_PLAYER)
+		for i=1, GetGroupSize(), 1 do
+			if i ~= playerGroupIndex then
+				local groupUnitTag = GetGroupUnitTagByIndex(1)
+				if AreUnitsEqual(groupUnitTag, CON_RETICLE) then
+--d("<reticle: group unit " .. tos(groupUnitTag))
+					return
+				end
+			end
 		end
 	end
+
+
+	--Automatically apply the target marker to the enemy, if the same enemy of the combatevent here is below the reticle
+--d(">activelyEngaged: " ..tos(IsUnitActivelyEngaged(CON_RETICLE))) --may not work for targets of aoe?
+	local companionActive = HasActiveCompanion()
+	if (IsUnitInCombat(CON_RETICLE) and (not companionActive or (companionActive == true and not AreUnitsEqual(CON_COMPANION, CON_RETICLE)))
+		and unitNameBelowReticle == targetName) then
+
+		local activeTargetMarkerType = GetUnitTargetMarkerType(CON_RETICLE)
+--d(">combat target = reticle, Marker: " ..tos(activeTargetMarkerType))
+		if activeTargetMarkerType == nil or activeTargetMarkerType == 0 then
+			--Get next free target marker
+			local targetMarkerType
+			for targetMarkerTypeLoop=1, CON_NUM_TARGET_MARKERS, 1 do
+				if targetMarkerType == nil and targetMarkersNumbersApplied[targetMarkerTypeLoop] == nil then
+					targetMarkerType = targetMarkerTypeLoop
+					break
+				end
+			end
+
+			if targetMarkerType == nil or targetMarkerType == 0 then return end
+			targetMarkersApplied[targetUnitId] = targetMarkerType
+			AssignTargetMarkerToReticleTarget(targetMarkerType)
+			local activeTargetMarkerTypeNow = GetUnitTargetMarkerType(CON_RETICLE)
+			if activeTargetMarkerTypeNow ~= 0 then
+--d(">applied target marker: " ..tos(activeTargetMarkerTypeNow))
+				targetMarkersNumbersApplied[activeTargetMarkerTypeNow] = true
+			end
+		else
+--d("<target marker was applied! " ..tos(activeTargetMarkerType))
+			targetMarkersNumbersApplied[activeTargetMarkerType] = true
+		end
+	end
+--FCOAB._targetMarkersApplied = targetMarkersApplied
+--FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
+
+end
+
+local function onUnitDeathStateChanged(eventId, unitTag, isDead)
+	--d("[FCOAB]Unit death: " ..tos(isDead) .. ", tag: " ..tos(unitTag))
+	--Remove the actual target marker if needed
+	removeActualTargetMarkerAtReticleUnit()
 end
 
 local function onPowerUpdate(eventId, unitTag, powerIndex, powerType, powerValue, powerMax, powerEffectiveMax)
@@ -1415,17 +1589,26 @@ local function reticleUnitData()
 	end
 
 	--Target markers
-	if settings.targetMarkersSetInCombatToEnemies == true then
+	if combatEventRegistered == false and settings.targetMarkersSetInCombatToEnemies == true then
 		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_IS_ERROR, false)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER)
 		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET, REGISTER_FILTER_IS_ERROR, false)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET)
 		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", 	EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION, REGISTER_FILTER_IS_ERROR, false)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION)
+
+		EM:RegisterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",	EVENT_UNIT_DEATH_STATE_CHANGED, 	onUnitDeathStateChanged)
+		EM:AddFilterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",EVENT_UNIT_DEATH_STATE_CHANGED, 	REGISTER_FILTER_UNIT_TAG, CON_RETICLE)
+		combatEventRegistered = true
 	else
-		EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
-		EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
-		EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
+		if combatEventRegistered == true then
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
+
+			EM:UnregisterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",	EVENT_UNIT_DEATH_STATE_CHANGED)
+			combatEventRegistered = false
+		end
 	end
 end
 
@@ -1603,10 +1786,11 @@ end
 
 
 local function onPlayerCombatState(eventId, inCombat)
+d("[FCOAB]PlayerCombat: " ..tos(inCombat))
 	--New combat: Reset the last hit target names and unitIds
 	local settings = FCOAB.settingsVars.settings
 	if inCombat == true then
-		--Leave the target markers for an easier find until the despawn
+		--Leave the target markers for an easier find until the despawn of the unit (which should happen automatically as they are dead!)
 		--[[
 		--Reset the target markers again
 		if enemyNumber > 0 or NonContiguousCount(targetMarkersApplied) > 0 then
@@ -1621,10 +1805,11 @@ local function onPlayerCombatState(eventId, inCombat)
 		end
 		]]
 
-		enemyNumber = 0
 		hitTargetsUnitIds = {}
 		hitTargetsNames = {}
+
 		targetMarkersApplied = {}
+		targetMarkersNumbersApplied = {}
 
 		hadLastCombatAnyChatMessage = false
 		wasNarrationQueueCleared = false
