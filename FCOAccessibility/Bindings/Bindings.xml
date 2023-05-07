@@ -56,6 +56,14 @@
                 <Down>FCOAB.ToggleLAMSetting("groupLeaderSound")</Down>
             </Action>
 
+            <Action name="FCOAB_SETTING_GROUP_LEADER_DIST">
+                <Down>FCOAB.ToggleLAMSetting("groupLeaderDistanceToChat")</Down>
+            </Action>
+
+            <Action name="FCOAB_SETTING_GROUP_LEADER_DIST_CUR">
+                <Down>FCOAB.LetMeHearCurrentValue("groupLeaderDistance")</Down>
+            </Action>
+
             <Action name="FCOAB_SETTING_AUTO_REMOVE_WAYPOINT">
                 <Down>FCOAB.ToggleLAMSetting("autoRemoveWaypoint")</Down>
             </Action>

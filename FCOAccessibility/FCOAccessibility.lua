@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '0.9' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '1.1' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -222,6 +222,7 @@ local lastPlayed = {
 	rallyPoint = 0,
 	quest = 0,
 	groupLeader = 0,
+	groupLeaderClockPosition = 0,
 	playerNotMoving = 0,
 
 	--Chat
@@ -230,6 +231,7 @@ local lastPlayed = {
 	reticleInteraction2Chat = 0,
 }
 local lastDistanceToGroupLeader = 0
+local lastGroupLeaderClockPosition = 0
 
 local lastAddedToChat
 local compassToChatDelay = 250
@@ -298,6 +300,13 @@ local function getPercent(powerValue, powerMax)
 	return zo_round((powerValue / powerMax) * 100)
 end
 
+local function getClockPositionByAngle(angle_degrees)
+	if angle_degrees == nil or angle_degrees > 360 then return end
+	local clockHand = (360 - angle_degrees) / 30 --each hour relates to 30°
+	clockHand = zo_clamp(clockHand, 1, 12)
+	return zo_round(clockHand)
+end
+
 --[[
 local function getPrioChatTextsAndOutputSorted(priority)
 	if priority == nil then return end
@@ -358,9 +367,14 @@ local function addToChatWithPrefix(chatMsg, prefixText, priority, adHoc)
 end
 ]]
 
-local function addToChatWithPrefix(chatMsg, prefixText)
+local function addToChatWithPrefix(chatMsg, prefixText, forceNoPrefix)
 	if chatMsg == nil or chatMsg == "" then return end
-	prefixText = prefixText or FCOAB.settingsVars.settings.chatAddonPrefix
+	forceNoPrefix = forceNoPrefix or false
+	if not forceNoPrefix then
+		prefixText = prefixText or FCOAB.settingsVars.settings.chatAddonPrefix
+	else
+		prefixText = ""
+	end
 	--if priority == CON_PRIO_CHAT_COMBAT_TIP then adHoc = true end
 
 	--if prefixText ~= nil and prefixText ~= "" then
@@ -384,12 +398,30 @@ local function isAccessibilitySettingEnabled(settingId)
 	return GetSetting_Bool(SETTING_TYPE_ACCESSIBILITY, settingId)
 end
 
+local function getAccessibilitySetting(settingId)
+	return GetSetting(SETTING_TYPE_ACCESSIBILITY, settingId)
+end
+
 local function changeAccessibilitSettingTo(newState, settingId)
 	SetSetting(SETTING_TYPE_ACCESSIBILITY, settingId, newState)
 end
 
 local function isAccessibilityModeEnabled()
 	return isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_ACCESSIBILITY_MODE)
+end
+
+local function getAccessibilityNarrationVolume()
+	if isAccessibilityModeEnabled() then
+		return getAccessibilitySetting(ACCESSIBILITY_SETTING_NARRATION_VOLUME)
+	end
+	return nil
+end
+
+local function updateCurrentAccesibilityNarrationVolume()
+	local currentNarrationVolume = getAccessibilityNarrationVolume()
+	if currentNarrationVolume ~= nil then
+		FCOAB.settingsVars.settings.ESOaccessibilityFix_LastNarrationVolume = currentNarrationVolume
+	end
 end
 
 --[[
@@ -636,7 +668,7 @@ local function checkWaypointLoc()
 		]]
 
 		--Remove the waypoint
-		ZO_WorldMap_RemovePlayerWaypoint() --use this to remove teh pin on the worldmap too! will internally call RemovePlayerWaypoint()
+		ZO_WorldMap_RemovePlayerWaypoint() --use this to remove the pin on the worldmap too! will internally call RemovePlayerWaypoint()
 	end
 end
 
@@ -1119,20 +1151,45 @@ end
 
 ------------------------------------------------------------------------------------------------------------------------
 
+local function groupUnitTagChecksForTargetMarkers()
+	if IsUnitGrouped(CON_RETICLE) then return true end
+	if IsUnitGrouped(CON_PLAYER) then
+		local playerGroupIndex = GetGroupIndexByUnitTag(CON_PLAYER)
+		for i=1, GetGroupSize(), 1 do
+			if i ~= playerGroupIndex then
+				local groupUnitTag = GetGroupUnitTagByIndex(1)
+				if AreUnitsEqual(groupUnitTag, CON_RETICLE) then
+--d("<reticle: group unit " .. tos(groupUnitTag))
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
 local function removeActualTargetMarkerAtReticleUnit()
+	local rawUnitName = GetRawUnitName(CON_RETICLE)
 	local activeTargetMarkerType = GetUnitTargetMarkerType(CON_RETICLE)
---d(">target = reticle, Marker: " ..tos(activeTargetMarkerType))
+	--d(">target = reticle, Marker: " ..tos(activeTargetMarkerType))
 	if activeTargetMarkerType ~= 0 then
+		--No grouped units
+		if groupUnitTagChecksForTargetMarkers() == true then return end
+
 		--Remove the marker
+		local rawUnitNameNow = GetRawUnitName(CON_RETICLE)
+		--Target changed!
+		if rawUnitName ~= rawUnitNameNow then return end
+
 		AssignTargetMarkerToReticleTarget(activeTargetMarkerType)
 		local activeTargetMarkerTypeNow = GetUnitTargetMarkerType(CON_RETICLE)
 		if activeTargetMarkerTypeNow == 0 then
---d("<marker removed: " ..tos(activeTargetMarkerType))
+			--d("<marker removed: " ..tos(activeTargetMarkerType))
 			targetMarkersNumbersApplied[activeTargetMarkerType] = nil
 		end
 	end
---FCOAB._targetMarkersApplied = targetMarkersApplied
---FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
+	--FCOAB._targetMarkersApplied = targetMarkersApplied
+	--FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
 end
 
 local combatTargetTypesFiltered = {
@@ -1271,6 +1328,7 @@ local enemyNumberToTargetMarkerType = {
 	[7] = TARGET_MARKER_TYPE_SEVEN,
 	[8] = TARGET_MARKER_TYPE_EIGHT,
 }
+
 local function onCombatEvent(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
 	--Which source? Only for player (pets/companions)
 
@@ -1283,22 +1341,23 @@ local function onCombatEvent(eventId, result, isError, abilityName, abilityGraph
 			or targetUnitId == nil
 			or targetMarkersApplied[targetUnitId] ~= nil
 			or targetName == nil or targetName == ""
-			--or hitTargetsUnitIds[targetUnitId] ~= nil
+	--or hitTargetsUnitIds[targetUnitId] ~= nil
 	then
 		return
 	end
+
+	local unitNameBelowReticle = GetRawUnitName(CON_RETICLE)
 
 	--local targetNameClean = zo_strformat(SI_UNIT_NAME, targetName)
 	hitTargetsUnitIds[targetUnitId] = targetName
 	hitTargetsNames[targetName] = hitTargetsNames[targetName] or {}
 	hitTargetsNames[targetName][targetUnitId] = true
 
---for debugging
---FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
---FCOAB._hitTargetsNames = hitTargetsNames
+	--for debugging
+	--FCOAB._hitTargetsUnitIds = hitTargetsUnitIds
+	--FCOAB._hitTargetsNames = hitTargetsNames
 
-	local unitNameBelowReticle = GetRawUnitName(CON_RETICLE)
---d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "/" .. tos(unitNameBelowReticle) .. " ("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType) .. ", enemyNumber: " ..tos(enemyNumber))
+	--d("[FCOAB]OnCombatEvent-source: player, target: " .. tos(targetName) .. "/" .. tos(unitNameBelowReticle) .. " ("..tos(targetUnitId).."-type: " ..tos(targetType).."), result: " ..tos(result) ..", ability: " ..tos(abilityName) .. ", powerType: " ..tos(powerType) .. ", enemyNumber: " ..tos(enemyNumber))
 
 	--Unit died!
 	if result == ACTION_RESULT_TARGET_DEAD then
@@ -1308,28 +1367,21 @@ local function onCombatEvent(eventId, result, isError, abilityName, abilityGraph
 	end
 
 	--Exclude group members!
-	if IsUnitGrouped(CON_PLAYER) then
-		local playerGroupIndex = GetGroupIndexByUnitTag(CON_PLAYER)
-		for i=1, GetGroupSize(), 1 do
-			if i ~= playerGroupIndex then
-				local groupUnitTag = GetGroupUnitTagByIndex(1)
-				if AreUnitsEqual(groupUnitTag, CON_RETICLE) then
---d("<reticle: group unit " .. tos(groupUnitTag))
-					return
-				end
-			end
-		end
-	end
+	if groupUnitTagChecksForTargetMarkers() == true then return end
 
 
 	--Automatically apply the target marker to the enemy, if the same enemy of the combatevent here is below the reticle
---d(">activelyEngaged: " ..tos(IsUnitActivelyEngaged(CON_RETICLE))) --may not work for targets of aoe?
+	--d(">activelyEngaged: " ..tos(IsUnitActivelyEngaged(CON_RETICLE))) --may not work for targets of aoe?
 	local companionActive = HasActiveCompanion()
 	if (IsUnitInCombat(CON_RETICLE) and (not companionActive or (companionActive == true and not AreUnitsEqual(CON_COMPANION, CON_RETICLE)))
-		and unitNameBelowReticle == targetName) then
+			and unitNameBelowReticle == targetName) then
+
+		local unitNameNow = GetRawUnitName(CON_RETICLE)
+		--Unit below reticle changed!
+		if unitNameNow ~= unitNameBelowReticle then return end
 
 		local activeTargetMarkerType = GetUnitTargetMarkerType(CON_RETICLE)
---d(">combat target = reticle, Marker: " ..tos(activeTargetMarkerType))
+		--d(">combat target = reticle, Marker: " ..tos(activeTargetMarkerType))
 		if activeTargetMarkerType == nil or activeTargetMarkerType == 0 then
 			--Get next free target marker
 			local targetMarkerType
@@ -1341,20 +1393,25 @@ local function onCombatEvent(eventId, result, isError, abilityName, abilityGraph
 			end
 
 			if targetMarkerType == nil or targetMarkerType == 0 then return end
+
+			unitNameNow = GetRawUnitName(CON_RETICLE)
+			--Unit below reticle changed!
+			if unitNameNow ~= unitNameBelowReticle then return end
+
 			targetMarkersApplied[targetUnitId] = targetMarkerType
 			AssignTargetMarkerToReticleTarget(targetMarkerType)
 			local activeTargetMarkerTypeNow = GetUnitTargetMarkerType(CON_RETICLE)
 			if activeTargetMarkerTypeNow ~= 0 then
---d(">applied target marker: " ..tos(activeTargetMarkerTypeNow))
+				--d(">applied target marker: " ..tos(activeTargetMarkerTypeNow))
 				targetMarkersNumbersApplied[activeTargetMarkerTypeNow] = true
 			end
 		else
---d("<target marker was applied! " ..tos(activeTargetMarkerType))
+			--d("<target marker was applied! " ..tos(activeTargetMarkerType))
 			targetMarkersNumbersApplied[activeTargetMarkerType] = true
 		end
 	end
---FCOAB._targetMarkersApplied = targetMarkersApplied
---FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
+	--FCOAB._targetMarkersApplied = targetMarkersApplied
+	--FCOAB._targetMarkersNumbersApplied = targetMarkersNumbersApplied
 
 end
 
@@ -1435,6 +1492,35 @@ d("<lastPercent is 0")
 	--end
 end
 
+
+
+local function checkIfTargetMarkersShouldBeEnabled()
+	--Is player grouped and is the player the group leader? Else target markers would be done by multiple players in group and thus changed to wrong values
+	local isPlayerGrouped = IsUnitGrouped(CON_PLAYER)
+	local isPlayerGroupLeader = IsUnitGroupLeader(CON_PLAYER)
+
+	if combatEventRegistered == false and FCOAB.settingsVars.settings.targetMarkersSetInCombatToEnemies == true and (not isPlayerGrouped or (isPlayerGrouped and isPlayerGroupLeader)) then
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER)
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET)
+		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", 	EVENT_COMBAT_EVENT, 		onCombatEvent)
+		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION)
+
+		EM:RegisterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",	EVENT_UNIT_DEATH_STATE_CHANGED, 	onUnitDeathStateChanged)
+		EM:AddFilterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",EVENT_UNIT_DEATH_STATE_CHANGED, 	REGISTER_FILTER_UNIT_TAG, CON_RETICLE)
+		combatEventRegistered = true
+	else
+		if combatEventRegistered == true then
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
+			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
+
+			EM:UnregisterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",	EVENT_UNIT_DEATH_STATE_CHANGED)
+			combatEventRegistered = false
+		end
+	end
+end
 
 local function reticleUnitData()
 	local settings = FCOAB.settingsVars.settings
@@ -1589,27 +1675,7 @@ local function reticleUnitData()
 	end
 
 	--Target markers
-	if combatEventRegistered == false and settings.targetMarkersSetInCombatToEnemies == true then
-		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER)
-		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET)
-		EM:RegisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", 	EVENT_COMBAT_EVENT, 		onCombatEvent)
-		EM:AddFilterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION",	EVENT_COMBAT_EVENT, 		REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_COMPANION)
-
-		EM:RegisterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",	EVENT_UNIT_DEATH_STATE_CHANGED, 	onUnitDeathStateChanged)
-		EM:AddFilterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",EVENT_UNIT_DEATH_STATE_CHANGED, 	REGISTER_FILTER_UNIT_TAG, CON_RETICLE)
-		combatEventRegistered = true
-	else
-		if combatEventRegistered == true then
-			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT", 			EVENT_COMBAT_EVENT)
-			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_PET", 		EVENT_COMBAT_EVENT)
-			EM:UnregisterForEvent(addonName .. "_EVENT_COMBAT_EVENT_COMPANION", EVENT_COMBAT_EVENT)
-
-			EM:UnregisterForEvent(addonName .. "_EVENT_UNIT_DEATH_STATE_CHANGED",	EVENT_UNIT_DEATH_STATE_CHANGED)
-			combatEventRegistered = false
-		end
-	end
+	checkIfTargetMarkersShouldBeEnabled()
 end
 
 local function onGroupStatusChange(hasLeft, hasJoined, onUpdate, onUpdateEventPlayerActivated)
@@ -1688,17 +1754,30 @@ d("<<====================<<")
 --d(">angle_degrees: " ..tos(angle_degrees) .. " (" ..tos(360 - groupLeaderAngleHalf) .. "/" .. tos(groupLeaderAngleHalf) ..")")
 	if angle_degrees >= (360 - groupLeaderAngleHalf) or angle_degrees <= groupLeaderAngleHalf then
 --d("<Looking at unit!")
-		return true
+		return true, angle_degrees
 	else
 		--reset the last played group leader sound so next time we look at the group leader again it will be played directly
 		lastPlayed.groupLeader = 0
-		return false
+		return false, angle_degrees
 	end
 end
 
 
+local function getGroupLeaderDistance()
+	if IsUnitGrouped(CON_PLAYER) == true then
+		local unitTagOfGroupLeader = GetGroupLeaderUnitTag()
+		if AreUnitsEqual(CON_PLAYER, unitTagOfGroupLeader) then return end
+		local isUnitOnlineAndInSameWorldEtc = checkUnitIsOnlineAndInSameIniAndWorld(unitTagOfGroupLeader)
+		if isUnitOnlineAndInSameWorldEtc == true then
+			local normXGroupLeader, normYGroupLeader = GetMapPlayerPosition(unitTagOfGroupLeader)
+			return getDistanceToLocalCoords(normXGroupLeader, normYGroupLeader)
+		end
+	end
+	return
+end
+
 local function checkGroupLeaderPos()
---d("[FCOAB]checkGroupLeaderPos")
+	--d("[FCOAB]checkGroupLeaderPos")
 	local unitTagOfGroupLeader = groupLeaderData.unitTag
 	if unitTagOfGroupLeader == nil or unitTagOfGroupLeader == "" then
 		--Do a new "is unit in group check + get group leader" by simulating a member has left the group
@@ -1732,7 +1811,9 @@ local function checkGroupLeaderPos()
 	end
 
 	--Check if the player is looking into the group leader's direction
-	local isPlayerLookingAtGroupLeader = isPlayerLookingAtUnit(normX, normY)
+	local isPlayerLookingAtGroupLeader, angle_degrees = isPlayerLookingAtUnit(normX, normY)
+
+--d(">lookingAtGroupLead: " ..tos(isPlayerLookingAtGroupLeader) .. ", angle: " ..tos(angle_degrees))
 
 	--[[
 	FCOAB._rads = {
@@ -1752,17 +1833,51 @@ local function checkGroupLeaderPos()
 	}
 	]]
 	--is the player more than 3 meters away from the groupLeader
+	local now = GetGameTimeMilliseconds()
+
+	local groupLeaderLookingAtAngleSoundPlayed = false
 	if isPlayerLookingAtGroupLeader == true then
-		local now = GetGameTimeMilliseconds()
 		local lastPlayedGroupLeader = lastPlayed.groupLeader
 		local waitTime = settings.groupLeaderSoundDelay * 1000
 
 		if lastPlayedGroupLeader == 0 or now >= (lastPlayedGroupLeader + waitTime) then
 			lastPlayed.groupLeader = now
 			playSoundLoopNow(settings.groupLeaderSoundName, settings.groupLeaderSoundRepeat)
+			groupLeaderLookingAtAngleSoundPlayed = true
 
 			if settings.groupLeaderDistanceToChat == true and (lastDistanceToGroupLeader == 0 or lastDistanceToGroupLeader ~= distToGroupLeader) then
 				addToChatWithPrefix("Distance to group leader: " .. tos(distToGroupLeader))
+			end
+		end
+	end
+
+	--is the clock position of the group leader enabled?
+	if settings.groupLeaderClockPosition == true then
+		if groupLeaderLookingAtAngleSoundPlayed == true then
+			if settings.groupLeaderClockPositionIfLookingAtGroupLeader == false then
+				lastPlayed.groupLeaderClockPosition = 0
+				return
+			end
+		else
+			local groupLeaderAngle = settings.groupLeaderSoundAngle
+			local groupLeaderAngleHalf = groupLeaderAngle / 2
+			if angle_degrees >= (360 - groupLeaderAngleHalf) or angle_degrees <= groupLeaderAngleHalf then
+				lastPlayed.groupLeaderClockPosition = 0
+				return
+			end
+		end
+
+
+		local lastPlayedGroupLeaderClockPosition = lastPlayed.groupLeaderClockPosition
+		local waitTime = settings.groupLeaderClockPositionDelay * 1000
+
+		if lastPlayedGroupLeaderClockPosition == 0 or now >= (lastPlayedGroupLeaderClockPosition + waitTime) then
+			lastPlayed.groupLeaderClockPosition = now
+
+			local groupLeaderClockPos = getClockPositionByAngle(angle_degrees)
+			if lastGroupLeaderClockPosition == 0 or lastGroupLeaderClockPosition ~= groupLeaderClockPos or (lastGroupLeaderClockPosition == groupLeaderClockPos and settings.groupLeaderClockPositionRepeatSame == true) then
+				lastGroupLeaderClockPosition = groupLeaderClockPos
+				addToChatWithPrefix(tos(groupLeaderClockPos), nil, false)
 			end
 		end
 	end
@@ -1804,6 +1919,7 @@ local function onPlayerCombatState(eventId, inCombat)
 			end
 		end
 		]]
+
 
 		hitTargetsUnitIds = {}
 		hitTargetsNames = {}
@@ -1973,6 +2089,28 @@ function FCOAB.ClearAccessibilityChatReaderQueue()
 	if not isAccessibilityModeEnabled() then return end
 	if isAccessibilitySettingEnabled(ACCESSIBILITY_SETTING_TEXT_CHAT_NARRATION) == true then
 		ClearNarrationQueue(NARRATION_TYPE_TEXT_CHAT)
+	end
+end
+
+local function checkIfScreenNarratonIsEnabledAndEnableIfNotEnabled()
+
+	return true
+end
+
+function FCOAB.LetMeHearCurrentValue(valueToPlay)
+	if type(valueToPlay) ~= "string" or valueToPlay == "" then return end
+	local readThisText
+	--Play the actual group leader distance as Narration
+	if valueToPlay == "groupLeaderDistance" and IsUnitGrouped(CON_PLAYER) == true then
+		local actualGroupLeaderDistance = getGroupLeaderDistance()
+		if actualGroupLeaderDistance ~= nil and actualGroupLeaderDistance >= 0 then
+			readThisText = "Distance to group leader: " ..tos(actualGroupLeaderDistance)
+		end
+	end
+
+
+	if readThisText ~= nil and readThisText ~= "" then
+		addToChatWithPrefix(readThisText, nil, true) --no prefix, only text!
 	end
 end
 
@@ -2814,7 +2952,7 @@ local function BuildAddonMenu()
 		{
 			type = "checkbox",
 			name    = "Group leader: Distance to chat",
-			tooltip = "Shows the distance to the group leader, in meters, in the chat so that the chat reader can read it out o you.",
+			tooltip = "Shows the distance to the group leader, in meters, in the chat so that the chat reader can read it out to you.",
 			getFunc = function() return settings.groupLeaderDistanceToChat end,
 			setFunc = function(value)
 				settings.groupLeaderDistanceToChat = value
@@ -2826,7 +2964,7 @@ local function BuildAddonMenu()
 		{
 			type = "slider",
 			name = "Group leader: Sound angle", -- or string id or function returning a string
-			tooltip = "Choose the angle in degrees where the sound still should be played if you look at the group leader direction. The default value is 20°. That means: if you look at teh group leader and you are aiming 10° to the left or to the right the sound will still be played.",
+			tooltip = "Choose the angle in degrees where the sound still should be played if you look at the group leader direction. The default value is 20°. That means: if you look at the group leader and you are aiming 10° to the left or to the right the sound will still be played.",
 			getFunc = function() return settings.groupLeaderSoundAngle end,
 			setFunc = function(value)
 				settings.groupLeaderSoundAngle = value
@@ -2850,6 +2988,70 @@ local function BuildAddonMenu()
 			--reference = "MyAddonSlider", -- unique global reference to control (optional)
 			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
 		},
+		{
+			type = "checkbox",
+			name    = "Group leader: Clock position",
+			tooltip = "Shows the clock position (12 in front, 3 right, 6 behind, 9 left of you) of the group leader in the chat so that the chat reader can read it out to you.",
+			getFunc = function() return settings.groupLeaderClockPosition end,
+			setFunc = function(value)
+				settings.groupLeaderClockPosition = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position")
+			end,
+			default = defaultSettings.groupLeaderClockPosition,
+			disabled = function() return not settings.groupLeaderSound end,
+		},
+		{
+			type = "checkbox",
+			name    = "Group leader: Clock position - Repeat same",
+			tooltip = "Repeat the same clock position to get a constant group leader clock position? If disabled the same clock position won't be added to the chat again.",
+			getFunc = function() return settings.groupLeaderClockPositionRepeatSame end,
+			setFunc = function(value)
+				settings.groupLeaderClockPositionRepeatSame = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position - Repeat same")
+			end,
+			default = defaultSettings.groupLeaderClockPositionRepeatSame,
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end,
+		},
+		{
+			type = "checkbox",
+			name    = "Group leader: Clock position - Lookin at leader",
+			tooltip = "Add the clock position to the chat if you are looking at the group leader (using the defined angle).",
+			getFunc = function() return settings.groupLeaderClockPositionIfLookingAtGroupLeader end,
+			setFunc = function(value)
+				settings.groupLeaderClockPositionIfLookingAtGroupLeader = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position - Looking at leader")
+			end,
+			default = defaultSettings.groupLeaderClockPositionIfLookingAtGroupLeader,
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end,
+		},
+		{
+			type = "slider",
+			name = "Group leader: Clock position delay", -- or string id or function returning a string
+			tooltip = "Choose the delay in seconds that the group leader clock position will use between the chat outputs.",
+			getFunc = function() return settings.groupLeaderClockPositionDelay end,
+			setFunc = function(value)
+				settings.groupLeaderClockPositionDelay = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position delay")
+			end,
+			min = 0,
+			max = 30,
+			step = 0.25, -- (optional)
+			clampInput = true, -- boolean, if set to false the input won't clamp to min and max and allow any number instead (optional)
+			--clampFunction = function(value, min, max) return math.max(math.min(value, max), min) end, -- function that is called to clamp the value (optional)
+			decimals = 2, -- when specified the input value is rounded to the specified number of decimals (optional)
+			autoSelect = false, -- boolean, automatically select everything in the text input field when it gains focus (optional)
+			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
+			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end, --or boolean (optional)
+			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
+			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
+			default = defaultSettings.groupLeaderSoundAngle, -- default value or function that returns the default value (optional)
+			--helpUrl = "https://www.esoui.com/portal.php?id=218&a=faq", -- a string URL or a function that returns the string URL (optional)
+			--reference = "MyAddonSlider", -- unique global reference to control (optional)
+			--resetFunc = function(sliderControl) d("defaults reset") end, -- custom function to run after the control is reset to defaults (optional)
+		},
+
 		--==============================================================================
 		{
 			type = 'header',
@@ -3268,7 +3470,7 @@ local function BuildAddonMenu()
 		{
 			type = "checkbox",
 			name    = "Combat Target markers - Automatically apply",
-			tooltip = "Apply up to 8 different target markers to the actively engaged enemies, below your crosshair. Each new enemy below your crosshair will get a new target marker until the end of the combat, which show at the compass too. At teh end of teh combat all target markers will be removed again.",
+			tooltip = "Apply up to 8 different target markers to the actively engaged enemies, below your crosshair. Each new enemy below your crosshair will get a new target marker until the end of the combat, which show at the compass too. At the end of the combat all target markers will be removed again.",
 			getFunc = function() return settings.targetMarkersSetInCombatToEnemies end,
 			setFunc = function(value)
 				settings.targetMarkersSetInCombatToEnemies = value
@@ -3716,8 +3918,20 @@ d("[FCOAB]PostHook SetPlayerWaypointByWorldLocation")
 	end)
 end
 
+local function loadESOAccessibilityFixes()
+	--ESO Accessibility narration volume
+	local ESOaccessibilityFix_LastNarrationVolume = FCOAB.settingsVars.settings.ESOaccessibilityFix_LastNarrationVolume
+	--Set current narration volue slider to that value
+	--SETTING_TYPE_ACCESSIBILITY, ACCESSIBILITY_SETTING_NARRATION_VOLUME  (SETTING_PANEL_ACCESSIBILITY)
+	if isAccessibilityModeEnabled() then
+		changeAccessibilitSettingTo(ESOaccessibilityFix_LastNarrationVolume, ACCESSIBILITY_SETTING_NARRATION_VOLUME)
+	end
+end
 
 local function onPlayerActivated()
+	--ESO accessibility fixes
+	loadESOAccessibilityFixes()
+
 	if FCOAB.settingsVars.settings.combatTipsToChat == true then
 		enableActiveCombatTipsIfDisabled()
 		--Is the addon AccountSettings enabled?
@@ -3766,8 +3980,30 @@ local function CreateGroupHooks()
 	end)
 end
 
+
+local function CreateESOHooks()
+	-- PreHook ReloadUI, SetCVar, LogOut & Quit to handle current accesibility mode narration volume
+    ZO_PreHook("ReloadUI", function()
+		updateCurrentAccesibilityNarrationVolume()
+		return false
+    end)
+
+    ZO_PreHook("Logout", function()
+		updateCurrentAccesibilityNarrationVolume()
+		return false
+    end)
+
+    ZO_PreHook("Quit", function()
+		updateCurrentAccesibilityNarrationVolume()
+		return false
+	end)
+end
+
+
 --Create the hooks & pre-hooks
 local function CreateHooks()
+	CreateESOHooks()
+
 	--other compass hooks
 	CreateCompassHooks()
 
@@ -3819,10 +4055,10 @@ local function LoadUserSettings()
 		["combatTipSound"] = true,
 		["combatTipSoundName"] =
 		{
-			[1] = "Item_On_Cooldown",
-			[2] = "Friend_InviteReceived",
-			[3] = "Friend_InviteReceived",
-			[4] = "DaedricArtifact_Revealed",
+			[1] = "Duel_Forfeit",
+			[2] = "Champion_PointGained",
+			[3] = "Duel_Forfeit",
+			[4] = "Champion_PointsCommitted",
 		},
 		["combatTipSoundRepeat"] =
 		{
@@ -3834,18 +4070,18 @@ local function LoadUserSettings()
 		["combatTipToChat"] = true,
 
 		["compassGroupRallyPointSound"] = true,
-		["compassGroupRallyPointSoundDelay"] = 3,
+		["compassGroupRallyPointSoundDelay"] = 2,
 		["compassGroupRallyPointSoundName"] = "GroupElection_ResultLost",
 		["compassGroupRallyPointSoundRepeat"] = 1,
 
 		["compassPlayerWaypointSound"] = true,
-		["compassPlayerWaypointSoundDelay"] = 4,
-		["compassPlayerWaypointSoundName"] = "Group_Disband",
+		["compassPlayerWaypointSoundDelay"] = 0.3500000000,
+		["compassPlayerWaypointSoundName"] = "Lock_Value",
 		["compassPlayerWaypointSoundRepeat"] = 1,
 
 		["compassTrackedQuestSound"] = true,
-		["compassTrackedQuestSoundDelay"] = 4,
-		["compassTrackedQuestSoundName"] = "GroupElection_Requested",
+		["compassTrackedQuestSoundDelay"] = 2,
+		["compassTrackedQuestSoundName"] = "New_NotificationTimed",
 		["compassTrackedQuestSoundRepeat"] = 1,
 		["compassToChatText"] = true,
 		["compassToChatTextSkipGroupLeader"] = false,
@@ -3853,11 +4089,16 @@ local function LoadUserSettings()
 
 		["groupLeaderDistanceToChat"] = false,
 		["groupLeaderSound"] = true,
-		["groupLeaderSoundAngle"] = 40,
-		["groupLeaderSoundDelay"] = 3.5000000000,
+		["groupLeaderSoundAngle"] = 70,
+		["groupLeaderSoundDelay"] = 2.1000000000,
 		["groupLeaderSoundDistance"] = 4,
-		["groupLeaderSoundName"] = "GiftInventoryView_FanfareBlast",
-		["groupLeaderSoundRepeat"] = 2,
+		["groupLeaderSoundName"] = "Champion_StarSlotted",
+		["groupLeaderSoundRepeat"] = 1,
+
+		["groupLeaderClockPosition"] = false,
+		["groupLeaderClockPositionRepeatSame"] = false,
+		["groupLeaderClockPositionDelay"] = 2,
+		["groupLeaderClockPositionIfLookingAtGroupLeader"] = false,
 
 		["preferredGroupMountDisplayName"] = "",
 
@@ -3887,6 +4128,12 @@ local function LoadUserSettings()
 		["lastTrackedQuestIndex"] = 1,
 
 		["targetMarkersSetInCombatToEnemies"] = true,
+
+
+		--ESO workarounds
+		--Accessibility mode settings: Narration volume (not saving properly for the game as it seems. So save it at logout/exit and
+		--load at event_player_activated each time
+		["ESOaccessibilityFix_LastNarrationVolume"] = "100.00000000",
     }
 	local defaults = FCOAB.settingsVars.defaults
 
