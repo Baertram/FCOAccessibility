@@ -17,9 +17,6 @@
             <Action name="FCOAB_SETTING_COMPASS_TO_CHAT">
                 <Down>FCOAB.ToggleLAMSetting("compassToChatText")</Down>
             </Action>
-            <Action name="FCOAB_SETTING_COMPASS_TO_CHAT_SKIP_GM">
-                <Down>FCOAB.ToggleLAMSetting("compassToChatTextSkipGroupMembers")</Down>
-            </Action>
             <Action name="FCOAB_SETTING_COMPASS_TO_CHAT_TQS">
                 <Down>FCOAB.ToggleLAMSetting("compassTrackedQuestSound")</Down>
             </Action>

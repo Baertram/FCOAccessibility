@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '1.1' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '1.3' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -378,10 +378,13 @@ local function addToChatWithPrefix(chatMsg, prefixText, forceNoPrefix)
 	--if priority == CON_PRIO_CHAT_COMBAT_TIP then adHoc = true end
 
 	--if prefixText ~= nil and prefixText ~= "" then
+	--ClearActiveNarration() --stop current narration
+
+	ClearNarrationQueue(NARRATION_TYPE_TEXT_CHAT)
+
 	d(prefixText .. chatMsg)
 	--end
 end
-
 
 local function outputLAMSettingsChangeToChat(chatMsg, prefixText, doOverride)
 	doOverride = doOverride or false
@@ -542,7 +545,7 @@ local function checkUnitIsOnlineAndInSameIniAndWorld(unitTag)
 	local doesUnitExist = DoesUnitExist(unitTag)
 	local isOnline = IsUnitOnline(unitTag)
 	local inSameInstance = IsGroupMemberInSameInstanceAsPlayer(unitTag)
-	local inSameWorld = IsGroupMemberInSameLayerAsPlayer(unitTag)
+	local inSameWorld = IsGroupMemberInSameWorldAsPlayer(unitTag)
 	local inSameLayer = IsGroupMemberInSameLayerAsPlayer(unitTag)
 	isUnitOnlineAndInSameWorldEtc = (doesUnitExist and isOnline and inSameInstance and inSameWorld and inSameLayer and true) or false
 	if isUnitOnlineAndInSameWorldEtc == false then
@@ -1812,8 +1815,9 @@ local function checkGroupLeaderPos()
 
 	--Check if the player is looking into the group leader's direction
 	local isPlayerLookingAtGroupLeader, angle_degrees = isPlayerLookingAtUnit(normX, normY)
+	if angle_degrees == nil then return end
 
---d(">lookingAtGroupLead: " ..tos(isPlayerLookingAtGroupLeader) .. ", angle: " ..tos(angle_degrees))
+	--d(">lookingAtGroupLead: " ..tos(isPlayerLookingAtGroupLeader) .. ", angle: " ..tos(angle_degrees))
 
 	--[[
 	FCOAB._rads = {
@@ -1877,7 +1881,7 @@ local function checkGroupLeaderPos()
 			local groupLeaderClockPos = getClockPositionByAngle(angle_degrees)
 			if lastGroupLeaderClockPosition == 0 or lastGroupLeaderClockPosition ~= groupLeaderClockPos or (lastGroupLeaderClockPosition == groupLeaderClockPos and settings.groupLeaderClockPositionRepeatSame == true) then
 				lastGroupLeaderClockPosition = groupLeaderClockPos
-				addToChatWithPrefix(tos(groupLeaderClockPos), nil, false)
+				addToChatWithPrefix(tos(groupLeaderClockPos), settings.chatGroupLeaderClockPositionPrefix, false)
 			end
 		end
 	end
@@ -1939,8 +1943,18 @@ local function onPlayerCombatState(eventId, inCombat)
 		end
 	end
 
-	local combatStartEndInfo = settings.combatStartEndInfo
+	if inCombat == true then
+		if settings.combatStartSound then
+			playSoundLoopNow(settings.combatStartSoundName, settings.combatStartSoundRepeat)
+		end
+	else
+		--Player left combat
+		if settings.combatEndSound then
+			playSoundLoopNow(settings.combatEndSoundName, settings.combatEndSoundRepeat)
+		end
+	end
 
+	local combatStartEndInfo = settings.combatStartEndInfo
 	if combatStartEndInfo == true then
 		local yourHealth, healthMax = 					GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_HEALTH)
 		local yourMagicka, magickaMax = 				GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_MAGICKA)
@@ -1949,15 +1963,8 @@ local function onPlayerCombatState(eventId, inCombat)
 		local yourUltimateBackbar, ultimateMaxBackbar = GetUnitPower(CON_PLAYER, 	COMBAT_MECHANIC_FLAGS_ULTIMATE, HOTBAR_CATEGORY_BACKUP)
 		--Player got into combat
 		if inCombat == true then
-			if settings.combatStartSound then
-				playSoundLoopNow(settings.combatStartSoundName, settings.combatStartSoundRepeat)
-			end
 			addToChatWithPrefix("COMBAT START!")
 		else
-			--Player left combat
-			if settings.combatEndSound then
-				playSoundLoopNow(settings.combatEndSoundName, settings.combatEndSoundRepeat)
-			end
 			addToChatWithPrefix("COMBAT END!")
 		end
 		local healthPercent = 	getPercent(yourHealth, healthMax)
@@ -2298,7 +2305,7 @@ local function BuildAddonMenu()
 			end,
 			isMultiline = false, -- boolean (optional)
 			isExtraWide = false, -- boolean (optional)
-			maxChars = 10, -- number (optional)
+			maxChars = 200, -- number (optional)
 			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
 			width = "full", -- or "half" (optional)
 			--disabled = function() return false end, -- or boolean (optional)
@@ -2999,6 +3006,23 @@ local function BuildAddonMenu()
 			end,
 			default = defaultSettings.groupLeaderClockPosition,
 			disabled = function() return not settings.groupLeaderSound end,
+		},
+		{
+			type = "editbox",
+			name = "Group leader: Clock pos. - Chat prefix",
+			tooltip = "Choose a prefix which should be printed in front of all chat messages related to the group leader position (for an easier distinguish between other read texts and the group leader position). The Accessibility screen reader reads it loud to you.\nThe default value is 'no prefix'",
+			getFunc = function() return settings.chatGroupLeaderClockPositionPrefix end,
+			setFunc = function(value)
+				settings.chatGroupLeaderClockPositionPrefix = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position - Chat reader prefix text")
+			end,
+			isMultiline = false, -- boolean (optional)
+			isExtraWide = false, -- boolean (optional)
+			maxChars = 200, -- number (optional)
+			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end, -- or boolean (optional)
+			default = defaultSettings.chatGroupLeaderClockPositionPrefix, -- default value or function that returns the default value (optional)
 		},
 		{
 			type = "checkbox",
@@ -4047,7 +4071,7 @@ local function LoadUserSettings()
 		["combatEndSound"] = true,
 		["combatEndSoundName"] = "Tribute_Summary_ProgressBarDecrease",
 		["combatEndSoundRepeat"] = 4,
-		["combatStartEndInfo"] = true,
+		["combatStartEndInfo"] = false,
 		["combatStartSound"] = true,
 		["combatStartSoundName"] = "Tribute_Summary_ProgressBarIncrease",
 		["combatStartSoundRepeat"] = 4,
@@ -4062,14 +4086,14 @@ local function LoadUserSettings()
 		},
 		["combatTipSoundRepeat"] =
 		{
-			[1] = 4,
-			[2] = 3,
-			[3] = 3,
+			[1] = 5,
+			[2] = 5,
+			[3] = 4,
 			[4] = 3,
 		},
 		["combatTipToChat"] = true,
 
-		["compassGroupRallyPointSound"] = true,
+		["compassGroupRallyPointSound"] = false,
 		["compassGroupRallyPointSoundDelay"] = 2,
 		["compassGroupRallyPointSoundName"] = "GroupElection_ResultLost",
 		["compassGroupRallyPointSoundRepeat"] = 1,
@@ -4084,38 +4108,39 @@ local function LoadUserSettings()
 		["compassTrackedQuestSoundName"] = "New_NotificationTimed",
 		["compassTrackedQuestSoundRepeat"] = 1,
 		["compassToChatText"] = true,
-		["compassToChatTextSkipGroupLeader"] = false,
-		["compassToChatTextSkipGroupMembers"] = false,
+		["compassToChatTextSkipGroupLeader"] = true,
+		["compassToChatTextSkipGroupMember"] = false,
 
 		["groupLeaderDistanceToChat"] = false,
 		["groupLeaderSound"] = true,
 		["groupLeaderSoundAngle"] = 70,
 		["groupLeaderSoundDelay"] = 2.1000000000,
-		["groupLeaderSoundDistance"] = 4,
+		["groupLeaderSoundDistance"] = 7,
 		["groupLeaderSoundName"] = "Champion_StarSlotted",
 		["groupLeaderSoundRepeat"] = 1,
 
-		["groupLeaderClockPosition"] = false,
+		["groupLeaderClockPosition"] = true,
 		["groupLeaderClockPositionRepeatSame"] = false,
-		["groupLeaderClockPositionDelay"] = 2,
+		["groupLeaderClockPositionDelay"] = 4,
 		["groupLeaderClockPositionIfLookingAtGroupLeader"] = false,
+		["chatGroupLeaderClockPositionPrefix"] = ".",
 
 		["preferredGroupMountDisplayName"] = "",
 
 		["reticleInteractionToChatText"] = true,
 		["reticleToChatInteractionDisableInGroup"] = false,
 
-		["reticlePlayerToChatText"] = false,
+		["reticlePlayerToChatText"] = true,
 		["reticlePlayerAlliance"] = false,
 		["reticlePlayerClass"] = true,
 		["reticlePlayerLevel"] = false,
 		["reticlePlayerRace"] = false,
 		["reticleToChatPlayerDisableInGroup"] = true,
-		["reticleToChatUnitDisableInGroup"] = true,
+		["reticleToChatUnitDisableInGroup"] = false,
 		["reticleUnitToChatText"] = true,
 		["reticleUnitIgnoreCritter"] = true,
 
-		["reticleToChatInCombat"] = false,
+		["reticleToChatInCombat"] = true,
 
 		["showReticleOverUnitHealthInChat"] = true,
 
@@ -4133,7 +4158,7 @@ local function LoadUserSettings()
 		--ESO workarounds
 		--Accessibility mode settings: Narration volume (not saving properly for the game as it seems. So save it at logout/exit and
 		--load at event_player_activated each time
-		["ESOaccessibilityFix_LastNarrationVolume"] = "100.00000000",
+		["ESOaccessibilityFix_LastNarrationVolume"] = "13.00000000",
     }
 	local defaults = FCOAB.settingsVars.defaults
 
