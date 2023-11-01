@@ -16,7 +16,7 @@
 } ]]
 
 
-local widgetVersion = 16
+local widgetVersion = 15
 local LAM = LibAddonMenu2
 if not LAM:RegisterWidget("panel", widgetVersion) then return end
 
@@ -48,13 +48,17 @@ local function ForceDefaults(panel)
 
     for i = 1, #panelControls do
         local updateControl = panelControls[i]
+        local updateControlData = updateControl.data
         if updateControl.UpdateValue and updateControl.data.default ~= nil then
             updateControl:UpdateValue(true)
+        end
+        if updateControlData.resetFunc then
+            updateControlData.resetFunc(updateControl)
         end
     end
 
     if panel.data.resetFunc then
-        panel.data.resetFunc()
+        panel.data.resetFunc(panel)
     end
 
     cm:FireCallbacks("LAM-RefreshPanel", panel)

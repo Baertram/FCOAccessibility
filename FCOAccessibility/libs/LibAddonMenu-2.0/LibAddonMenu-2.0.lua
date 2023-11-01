@@ -3,7 +3,7 @@
 ------------------------------------------------------------------
 
 
-local MAJOR, MINOR = "LibAddonMenu-2.0", 34
+local MAJOR, MINOR = "LibAddonMenu-2.0", 35
 
 local lam
 if(not LibStub) then
@@ -73,7 +73,6 @@ lam.util = lam.util or {}
 local util = lam.util
 lam.controlsForReload = lam.controlsForReload or {}
 local controlsForReload = lam.controlsForReload
-
 
 local function GetDefaultValue(default)
     if type(default) == "function" then
@@ -1502,6 +1501,7 @@ end
 -- panel = userdata; the panel returned by the :RegisterOptionsPanel method
 local locSettings = GetString(SI_GAME_MENU_SETTINGS)
 function lam:OpenToPanel(panel)
+
     -- find and select the panel's row in addon list
 
     local addonList = lam.addonList

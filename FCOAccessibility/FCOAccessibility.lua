@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '1.3' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '1.4' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -4247,7 +4247,6 @@ end
 local function FCOAccessibility_Initialized()
 	EM:RegisterForEvent(addonName .. "_EVENT_ADD_ON_LOADED", EVENT_ADD_ON_LOADED, 					FCOAccessibility_Loaded)
 end
-
 
 --------------------------------------------------------------------------------
 --- Call the start function for this addon to register events etc.
