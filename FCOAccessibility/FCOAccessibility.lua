@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '1.4' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '1.6' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -306,6 +306,26 @@ local function getClockPositionByAngle(angle_degrees)
 	clockHand = zo_clamp(clockHand, 1, 12)
 	return zo_round(clockHand)
 end
+
+local function getDirectionQuarterByAngle(angle_degrees)
+	if angle_degrees == nil or angle_degrees > 360 then return end
+	local clockHand = (360 - angle_degrees) / 30 --each hour relates to 30°
+	local groupLeaderClockPos = zo_clamp(clockHand, 1, 12)
+	if groupLeaderClockPos == nil then return end
+	local directionQuarter
+	if groupLeaderClockPos >= 7.5 and groupLeaderClockPos < 10.5 then
+		directionQuarter = "west"
+	elseif (groupLeaderClockPos >= 1 and groupLeaderClockPos < 1.5) or (groupLeaderClockPos >= 10.5 and groupLeaderClockPos <= 12) then
+		directionQuarter = "north"
+	elseif groupLeaderClockPos >= 1.5 and groupLeaderClockPos < 4.5 then
+		directionQuarter = "east"
+	elseif groupLeaderClockPos >= 4.5 and groupLeaderClockPos < 7.5 then
+		directionQuarter = "south"
+	end
+--d("[FCOAB]getDirectionQuarterByAngle: " .. tos(groupLeaderClockPos) .. "; directionQuarter: " ..tos(directionQuarter))
+	return directionQuarter
+end
+
 
 --[[
 local function getPrioChatTextsAndOutputSorted(priority)
@@ -1856,33 +1876,44 @@ local function checkGroupLeaderPos()
 	end
 
 	--is the clock position of the group leader enabled?
-	if settings.groupLeaderClockPosition == true then
-		if groupLeaderLookingAtAngleSoundPlayed == true then
-			if settings.groupLeaderClockPositionIfLookingAtGroupLeader == false then
-				lastPlayed.groupLeaderClockPosition = 0
-				return
-			end
-		else
-			local groupLeaderAngle = settings.groupLeaderSoundAngle
-			local groupLeaderAngleHalf = groupLeaderAngle / 2
-			if angle_degrees >= (360 - groupLeaderAngleHalf) or angle_degrees <= groupLeaderAngleHalf then
-				lastPlayed.groupLeaderClockPosition = 0
-				return
-			end
+	local groupLeaderDirectionPosition = settings.groupLeaderDirectionPosition
+	if settings.groupLeaderClockPosition == true or groupLeaderDirectionPosition == true then
+		if settings.groupLeaderClockPositionIfLookingAtGroupLeader == false then
+			lastPlayed.groupLeaderClockPosition = 0
+			return
 		end
+	else
+		local groupLeaderAngle = settings.groupLeaderSoundAngle
+		local groupLeaderAngleHalf = groupLeaderAngle / 2
+		if angle_degrees >= (360 - groupLeaderAngleHalf) or angle_degrees <= groupLeaderAngleHalf then
+			lastPlayed.groupLeaderClockPosition = 0
+			return
+		end
+	end
 
 
-		local lastPlayedGroupLeaderClockPosition = lastPlayed.groupLeaderClockPosition
-		local waitTime = settings.groupLeaderClockPositionDelay * 1000
+	local lastPlayedGroupLeaderClockPosition = lastPlayed.groupLeaderClockPosition
+	local waitTime = settings.groupLeaderClockPositionDelay * 1000
 
-		if lastPlayedGroupLeaderClockPosition == 0 or now >= (lastPlayedGroupLeaderClockPosition + waitTime) then
-			lastPlayed.groupLeaderClockPosition = now
+	if lastPlayedGroupLeaderClockPosition == 0 or now >= (lastPlayedGroupLeaderClockPosition + waitTime) then
+		lastPlayed.groupLeaderClockPosition = now
 
-			local groupLeaderClockPos = getClockPositionByAngle(angle_degrees)
-			if lastGroupLeaderClockPosition == 0 or lastGroupLeaderClockPosition ~= groupLeaderClockPos or (lastGroupLeaderClockPosition == groupLeaderClockPos and settings.groupLeaderClockPositionRepeatSame == true) then
-				lastGroupLeaderClockPosition = groupLeaderClockPos
-				addToChatWithPrefix(tos(groupLeaderClockPos), settings.chatGroupLeaderClockPositionPrefix, false)
+		local groupLeaderClockPos = getClockPositionByAngle(angle_degrees)
+		if lastGroupLeaderClockPosition == 0 or lastGroupLeaderClockPosition ~= groupLeaderClockPos or (lastGroupLeaderClockPosition == groupLeaderClockPos and settings.groupLeaderClockPositionRepeatSame == true) then
+			lastGroupLeaderClockPosition = groupLeaderClockPos
+
+			local chatGroupLeaderText = tos(groupLeaderClockPos)
+			--is the direction / quarter position of the group leader enabled?
+			if groupLeaderDirectionPosition == true then
+				chatGroupLeaderText = nil
+				local chatGroupLeaderDirectionPosition = settings.chatGroupLeaderDirectionPosition
+				local directionQuarter = getDirectionQuarterByAngle(angle_degrees)
+				--Get the direction based on the determined clock position
+				if directionQuarter ~= nil then
+					chatGroupLeaderText = chatGroupLeaderDirectionPosition[directionQuarter]
+				end
 			end
+			addToChatWithPrefix(chatGroupLeaderText, settings.chatGroupLeaderClockPositionPrefix, false)
 		end
 	end
 end
@@ -1981,15 +2012,34 @@ end
 ------------------------------------------------------------------------------------------------------------------------
 -- Keybindings
 ------------------------------------------------------------------------------------------------------------------------
-function FCOAB.ToggleLAMSetting(settingId)
+function FCOAB.ToggleLAMSetting(settingId, settingIdOther)
 	local settings = FCOAB.settingsVars.settings
 	if settings == nil or settings[settingId] == nil then return end
 
 	local currentValue = settings[settingId]
-	local newValue = not currentValue
-	if newValue ~= nil then
-		FCOAB.settingsVars.settings[settingId] = newValue
-		outputLAMSettingsChangeToChat(tos(newValue), tos(settingId), true)
+
+	---Toggle between 2 setting values: 1 off, other on, and vice versa
+	if settingIdOther ~= nil then
+		if settings[settingIdOther] == nil then return end
+		local currentValueOther = settings[settingIdOther]
+
+		local newValue = not currentValue
+		if newValue ~= nil then
+			FCOAB.settingsVars.settings[settingId] = newValue
+			outputLAMSettingsChangeToChat(tos(newValue), tos(settingId), true)
+		end
+		local newValueOther = not currentValueOther
+		if newValueOther ~= nil then
+			FCOAB.settingsVars.settings[settingIdOther] = newValueOther
+			outputLAMSettingsChangeToChat(tos(newValueOther), tos(settingIdOther), true)
+		end
+	else
+		---Only toggle the 1 setting value
+		local newValue = not currentValue
+		if newValue ~= nil then
+			FCOAB.settingsVars.settings[settingId] = newValue
+			outputLAMSettingsChangeToChat(tos(newValue), tos(settingId), true)
+		end
 	end
 end
 
@@ -2931,7 +2981,7 @@ local function BuildAddonMenu()
 		},
 		{
 			type = "slider",
-			name = "Group leader: Sound distance", -- or string id or function returning a string
+			name = "Group leader: Sound min distance", -- or string id or function returning a string
 			tooltip = "Choose the distance in meters around the group leader where the sound will not play. If you move away from the group leader more than this choosen meters the sound will play again.",
 			getFunc = function() return settings.groupLeaderSoundDistance end,
 			setFunc = function(value)
@@ -3002,56 +3052,144 @@ local function BuildAddonMenu()
 			getFunc = function() return settings.groupLeaderClockPosition end,
 			setFunc = function(value)
 				settings.groupLeaderClockPosition = value
+				if value == true then
+					settings.groupLeaderDirectionPosition = false
+				end
 				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position")
 			end,
 			default = defaultSettings.groupLeaderClockPosition,
-			disabled = function() return not settings.groupLeaderSound end,
+			disabled = function() return not settings.groupLeaderSound or settings.groupLeaderDirectionPosition end,
+		},
+		{
+			type = "checkbox",
+			name    = "Group leader: Direction position",
+			tooltip = "Shows the direction position (your 4 defined quarters) of the group leader in the chat so that the chat reader can read it out to you. You can define the 4 quartes of the directions yourself in the 4 editboxes below. Default values are: West, Nort, East, and South.",
+			getFunc = function() return settings.groupLeaderDirectionPosition end,
+			setFunc = function(value)
+				settings.groupLeaderDirectionPosition = value
+				if value == true then
+					settings.groupLeaderClockPosition = false
+				end
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Direction position")
+			end,
+			default = defaultSettings.groupLeaderDirectionPosition,
+			disabled = function() return not settings.groupLeaderSound or settings.groupLeaderClockPosition end,
 		},
 		{
 			type = "editbox",
-			name = "Group leader: Clock pos. - Chat prefix",
-			tooltip = "Choose a prefix which should be printed in front of all chat messages related to the group leader position (for an easier distinguish between other read texts and the group leader position). The Accessibility screen reader reads it loud to you.\nThe default value is 'no prefix'",
-			getFunc = function() return settings.chatGroupLeaderClockPositionPrefix end,
+			name = "Group leader: Diretion quarter - West",
+			tooltip = "Choose the direction quarter to print in chat if the group leader is west of you. The Accessibility screen reader reads it loud to you.\nThe default value is 'west'",
+			getFunc = function() return settings.chatGroupLeaderDirectionPosition["west"] end,
 			setFunc = function(value)
-				settings.chatGroupLeaderClockPositionPrefix = value
-				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position - Chat reader prefix text")
+				settings.chatGroupLeaderDirectionPosition["west"] = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Direction position - Quarter for West")
 			end,
 			isMultiline = false, -- boolean (optional)
 			isExtraWide = false, -- boolean (optional)
 			maxChars = 200, -- number (optional)
 			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
 			width = "full", -- or "half" (optional)
-			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end, -- or boolean (optional)
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderDirectionPosition end, -- or boolean (optional)
+			default = defaultSettings.chatGroupLeaderDirectionPosition["west"], -- default value or function that returns the default value (optional)
+		},
+		{
+			type = "editbox",
+			name = "Group leader: Diretion quarter - North",
+			tooltip = "Choose the direction quarter to print in chat if the group leader is west of you. The Accessibility screen reader reads it loud to you.\nThe default value is 'north'",
+			getFunc = function() return settings.chatGroupLeaderDirectionPosition["north"] end,
+			setFunc = function(value)
+				settings.chatGroupLeaderDirectionPosition["north"] = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Direction position - Quarter for North")
+			end,
+			isMultiline = false, -- boolean (optional)
+			isExtraWide = false, -- boolean (optional)
+			maxChars = 200, -- number (optional)
+			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderDirectionPosition end, -- or boolean (optional)
+			default = defaultSettings.chatGroupLeaderDirectionPosition["north"], -- default value or function that returns the default value (optional)
+		},
+		{
+			type = "editbox",
+			name = "Group leader: Diretion quarter - East",
+			tooltip = "Choose the direction quarter to print in chat if the group leader is west of you. The Accessibility screen reader reads it loud to you.\nThe default value is 'east'",
+			getFunc = function() return settings.chatGroupLeaderDirectionPosition["east"] end,
+			setFunc = function(value)
+				settings.chatGroupLeaderDirectionPosition["east"] = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Direction position - Quarter for East")
+			end,
+			isMultiline = false, -- boolean (optional)
+			isExtraWide = false, -- boolean (optional)
+			maxChars = 200, -- number (optional)
+			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderDirectionPosition end, -- or boolean (optional)
+			default = defaultSettings.chatGroupLeaderDirectionPosition["east"], -- default value or function that returns the default value (optional)
+		},
+		{
+			type = "editbox",
+			name = "Group leader: Diretion quarter - South",
+			tooltip = "Choose the direction quarter to print in chat if the group leader is west of you. The Accessibility screen reader reads it loud to you.\nThe default value is 'south'",
+			getFunc = function() return settings.chatGroupLeaderDirectionPosition["south"] end,
+			setFunc = function(value)
+				settings.chatGroupLeaderDirectionPosition["south"] = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Direction position - Quarter for South")
+			end,
+			isMultiline = false, -- boolean (optional)
+			isExtraWide = false, -- boolean (optional)
+			maxChars = 200, -- number (optional)
+			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderDirectionPosition end, -- or boolean (optional)
+			default = defaultSettings.chatGroupLeaderDirectionPosition["south"], -- default value or function that returns the default value (optional)
+		},
+
+
+		{
+			type = "editbox",
+			name = "Group leader: Clock / diretion pos. - Chat prefix",
+			tooltip = "Choose a prefix which should be printed in front of all chat messages related to the group leader position (for an easier distinguish between other read texts and the group leader position). The Accessibility screen reader reads it loud to you.\nThe default value is 'no prefix'",
+			getFunc = function() return settings.chatGroupLeaderClockPositionPrefix end,
+			setFunc = function(value)
+				settings.chatGroupLeaderClockPositionPrefix = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock / direction position - Chat reader prefix text")
+			end,
+			isMultiline = false, -- boolean (optional)
+			isExtraWide = false, -- boolean (optional)
+			maxChars = 200, -- number (optional)
+			--textType = TEXT_TYPE_NUMERIC, -- number (optional) or function returning a number. Valid TextType numbers: TEXT_TYPE_ALL, TEXT_TYPE_ALPHABETIC, TEXT_TYPE_ALPHABETIC_NO_FULLWIDTH_LATIN, TEXT_TYPE_NUMERIC, TEXT_TYPE_NUMERIC_UNSIGNED_INT, TEXT_TYPE_PASSWORD
+			width = "full", -- or "half" (optional)
+			disabled = function() return not settings.groupLeaderSound or ( not settings.groupLeaderClockPosition and not settings.groupLeaderDirectionPosition ) end, -- or boolean (optional)
 			default = defaultSettings.chatGroupLeaderClockPositionPrefix, -- default value or function that returns the default value (optional)
 		},
 		{
 			type = "checkbox",
-			name    = "Group leader: Clock position - Repeat same",
-			tooltip = "Repeat the same clock position to get a constant group leader clock position? If disabled the same clock position won't be added to the chat again.",
+			name    = "Group leader: Clock /direction position - Repeat same",
+			tooltip = "Repeat the same clock / direction position to get a constant group leader clock / direction position? If disabled the same clock / direction position won't be added to the chat again.",
 			getFunc = function() return settings.groupLeaderClockPositionRepeatSame end,
 			setFunc = function(value)
 				settings.groupLeaderClockPositionRepeatSame = value
-				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position - Repeat same")
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock / direction position - Repeat same")
 			end,
 			default = defaultSettings.groupLeaderClockPositionRepeatSame,
-			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end,
+			disabled = function() return not settings.groupLeaderSound or ( not settings.groupLeaderClockPosition and not settings.groupLeaderDirectionPosition ) end,
 		},
 		{
 			type = "checkbox",
-			name    = "Group leader: Clock position - Lookin at leader",
-			tooltip = "Add the clock position to the chat if you are looking at the group leader (using the defined angle).",
+			name    = "Group leader: Clock /direction position - Lookin at leader",
+			tooltip = "Add the clock / direction position to the chat if you are looking at the group leader (using the defined angle).",
 			getFunc = function() return settings.groupLeaderClockPositionIfLookingAtGroupLeader end,
 			setFunc = function(value)
 				settings.groupLeaderClockPositionIfLookingAtGroupLeader = value
 				outputLAMSettingsChangeToChat(tos(value), "Group leader: Clock position - Looking at leader")
 			end,
 			default = defaultSettings.groupLeaderClockPositionIfLookingAtGroupLeader,
-			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end,
+			disabled = function() return not settings.groupLeaderSound or ( not settings.groupLeaderClockPosition and not settings.groupLeaderDirectionPosition ) end,
 		},
 		{
 			type = "slider",
-			name = "Group leader: Clock position delay", -- or string id or function returning a string
-			tooltip = "Choose the delay in seconds that the group leader clock position will use between the chat outputs.",
+			name = "Group leader: Clock / direction position delay", -- or string id or function returning a string
+			tooltip = "Choose the delay in seconds that the group leader clock / direction position will use between the chat outputs.",
 			getFunc = function() return settings.groupLeaderClockPositionDelay end,
 			setFunc = function(value)
 				settings.groupLeaderClockPositionDelay = value
@@ -3067,7 +3205,7 @@ local function BuildAddonMenu()
 			inputLocation = "below", -- or "right", determines where the input field is shown. This should not be used within the addon menu and is for custom sliders (optional)
 			--readOnly = true, -- boolean, you can use the slider, but you can't insert a value manually (optional)
 			width = "full", -- or "half" (optional)
-			disabled = function() return not settings.groupLeaderSound or not settings.groupLeaderClockPosition end, --or boolean (optional)
+			disabled = function() return not settings.groupLeaderSound or ( not settings.groupLeaderClockPosition and not settings.groupLeaderDirectionPosition ) end, --or boolean (optional)
 			--warning = "May cause permanent awesomeness.", -- or string id or function returning a string (optional)
 			requiresReload = false, -- boolean, if set to true, the warning text will contain a notice that changes are only applied after an UI reload and any change to the value will make the "Apply Settings" button appear on the panel which will reload the UI when pressed (optional)
 			default = defaultSettings.groupLeaderSoundAngle, -- default value or function that returns the default value (optional)
@@ -4154,6 +4292,13 @@ local function LoadUserSettings()
 
 		["targetMarkersSetInCombatToEnemies"] = true,
 
+		["groupLeaderDirectionPosition"] = false,
+		["chatGroupLeaderDirectionPosition"] = {
+			["west"] =	"west",
+			["north"] = "north",
+			["east"] = 	"east",
+			["south"] =	"south",
+		},
 
 		--ESO workarounds
 		--Accessibility mode settings: Narration volume (not saving properly for the game as it seems. So save it at logout/exit and
@@ -4185,6 +4330,11 @@ local function LoadUserSettings()
 	if FCOAB.settingsVars.settings.lastTrackedQuestIndex ~= 0 then
 		lastTrackedQuestIndex = FCOAB.settingsVars.settings.lastTrackedQuestIndex
 		lastTrackedQuestName, lastTrackedQuestBackgroundText, lastTrackedQuestActiveStepText = GetJournalQuestInfo(lastTrackedQuestIndex)
+	end
+
+	--Fix if group leader clock and direction are both enabled
+	if FCOAB.settingsVars.settings.groupLeaderClockPosition == true then
+		FCOAB.settingsVars.settings.groupLeaderDirectionPosition = false
 	end
 end
 

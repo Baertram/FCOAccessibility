@@ -27,6 +27,7 @@ ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_AUTO_REMOVE_WAYPOINT",         
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_GROUP_LEADER_SOUND",                        "Tog. Group leader sound")
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_GROUP_LEADER_DIST",                         "Tog. Group leader distance")
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_GROUP_LEADER_DIST_CUR",                     "Current group leader distance")
+ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_GROUP_LEADER_POS_TYPE",                     "Tog. Group Leader clock/direction")
 
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_COMBAT_TIP_TO_CHAT",                        "Tog. Combat tips to chat")
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SETTING_COMBAT_TIP_SOUND",                          "Tog. Combat tip sounds")

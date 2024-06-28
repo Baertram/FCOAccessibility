@@ -61,6 +61,10 @@
                 <Down>FCOAB.LetMeHearCurrentValue("groupLeaderDistance")</Down>
             </Action>
 
+            <Action name="FCOAB_SETTING_GROUP_LEADER_POS_TYPE">
+                <Down>FCOAB.ToggleLAMSetting("groupLeaderDirectionPosition", "groupLeaderClockPosition")</Down>
+            </Action>
+
             <Action name="FCOAB_SETTING_AUTO_REMOVE_WAYPOINT">
                 <Down>FCOAB.ToggleLAMSetting("autoRemoveWaypoint")</Down>
             </Action>

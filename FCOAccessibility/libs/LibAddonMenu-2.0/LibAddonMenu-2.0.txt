@@ -1,12 +1,12 @@
-## APIVersion: 101039 101040
-## Title: LibAddonMenu-2.0 (Baertram's Accessibility patch)
-## Version: 2.0 r35 Accesibility
-## AddOnVersion: 359
+## APIVersion: 101041 101042
+## Title: LibAddonMenu-2.0
+## Version: 2.0 r37 Accessibility
+## AddOnVersion: 937
 ## IsLibrary: true
 ## OptionalDependsOn: LibStub LibDebugLogger
 ## Author: Seerah, sirinsidiator, et al.
 ## Contributors: votan, merlight, Garkin, Randactyl, KuroiLight, silvereyes333, Baertram, kyoma, klingo, phuein, Scootworks
-## Description: A library to aid in the creation of option panels. Added text2speech options for Accesibility mode
+## Description: A library to aid in the creation of option panels.
 
 ; This Add-on is not created by, affiliated with or sponsored by ZeniMax Media Inc. or its affiliates. 
 ; The Elder Scrolls® and related logos are registered trademarks or trademarks of ZeniMax Media Inc. in the United States and/or other countries. 
