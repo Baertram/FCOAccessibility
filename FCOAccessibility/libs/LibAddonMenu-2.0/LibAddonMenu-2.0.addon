@@ -1,8 +1,9 @@
-## APIVersion: 101045 101046
+## APIVersion: 101048
 ## Title: LibAddonMenu-2.0
-## Version: 2.0 r39 Accessibility
-## AddOnVersion: 391
+## Version: 2.0 r41 Accessibility
+## AddOnVersion: 410
 ## IsLibrary: true
+## ConsoleDependsOn: LibHarvensAddonSettings>=20004
 ## OptionalDependsOn: LibStub LibDebugLogger
 ## Author: Seerah, sirinsidiator, et al.
 ## Contributors: votan, merlight, Garkin, Randactyl, KuroiLight, silvereyes333, Baertram, kyoma, klingo, phuein, Scootworks
