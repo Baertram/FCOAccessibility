@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '1.9' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '2.0' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -61,6 +61,8 @@ local CON_COMPANION = "companion"
 local CON_CRITTER_MAX_HEALTH = 1
 
 local CON_NUM_TARGET_MARKERS = TARGET_MARKER_TYPE_EIGHT
+local mapSceneKeyboard = WORLD_MAP_SCENE
+local mapSceneGamepad  = GAMEPAD_WORLD_MAP_SCENE
 
 --Chat output priroties. Hgher values will be shown more early
 --[[
@@ -2008,6 +2010,143 @@ local function onPlayerCombatState(eventId, inCombat)
 	end
 end
 
+local mapPinsWithAnimation = {}
+local function applyPingPongAnimationToMapPin(mapPin, scaling)
+	if mapPin == nil  or type(mapPin) ~= "userdata" then return end
+--d("[FCOAB]applyPingPongAnimationToMapPin - mapPin: " ..tos(mapPin) .. "; scaling: " ..tos(scaling))
+
+	scaling = scaling or 4
+	if MAP_MODE_VOTANS_MINIMAP ~= nil and ZO_WorldMap_GetMode() == MAP_MODE_VOTANS_MINIMAP then
+		scaling=2
+	end
+	local animation, timeline
+	local mapPinAnimationData = mapPinsWithAnimation[mapPin]
+	if mapPinAnimationData ~= nil then
+		animation, timeline = mapPinAnimationData.animation, mapPinAnimationData.timeline
+--d(">animation and timeline found")
+	end
+	if animation == nil or timeline == nil then
+		animation, timeline = CreateSimpleAnimation(ANIMATION_SCALE, mapPin, 250)
+--d(">animation and timeline created new!")
+	end
+	if animation ~= nil and timeline ~= nil then
+--d(">animation and timeline added to mapPin lookup table")
+		mapPinsWithAnimation[mapPin] = { animation=animation, timeline = timeline }
+
+		animation:SetScaleValues(1, scaling)
+		animation:SetDuration(150)
+		timeline:SetPlaybackType(ANIMATION_PLAYBACK_PING_PONG, 3)
+		timeline:PlayFromStart()
+	end
+end
+
+local function checkGroupTagIsVisibleAndGetMapPin(groupTagCheck)
+	if IsUnitGrouped(CON_PLAYER) and ZO_WorldMap_IsPinGroupShown(MAP_FILTER_GROUP_MEMBERS) then
+		if not groupTagCheck == "groupLeader" then return end --currently only the groupleader pin is supported
+
+		local isInDungeon = GetMapContentType() == MAP_CONTENT_DUNGEON
+		local isInHouse = GetCurrentZoneHouseId() ~= 0
+		for i = 1, MAX_GROUP_SIZE_THRESHOLD do
+			local doSkip = false
+			local groupTag = ZO_Group_GetUnitTagForGroupIndex(i)
+			local isLeader = IsUnitGroupLeader(groupTag)
+			if groupTagCheck == "groupLeader" then
+				if not isLeader then
+--d("<skipping groupTag: " ..tos(groupTag))
+					doSkip = true
+				end
+			end
+			if not doSkip then
+				local isBreadcrumbed = IsUnitWorldMapPositionBreadcrumbed(groupTag)
+--d(">checking groupTag: " ..tos(groupTag) .. ", isBreadcrumbed: " ..tos(isBreadcrumbed))
+				if DoesUnitExist(groupTag) and IsUnitOnline(groupTag) then --and not AreUnitsEqual("player", groupTag) then
+					local isGroupMemberHiddenByInstance = false
+					-- If we're in an instance and it has its own map, it's going to be a dungeon map or house. Don't show on the map if we're on different instances/layers
+					-- If it doesn't have its own map, we're okay to show the group member regardless of instance
+					if DoesCurrentMapMatchMapForPlayerLocation() and IsGroupMemberInSameWorldAsPlayer(groupTag) and (isInDungeon or isInHouse) then
+						if not IsGroupMemberInSameInstanceAsPlayer(groupTag) then
+							-- We're in the same world as the group member, but a different instance
+							isGroupMemberHiddenByInstance = true
+						elseif not IsGroupMemberInSameLayerAsPlayer(groupTag) then
+							-- We're in the same instance as the group member, but a different layer
+							isGroupMemberHiddenByInstance = not isBreadcrumbed
+						end
+					end
+
+					if not isGroupMemberHiddenByInstance then
+						local _, _, _, isInCurrentMap, _ = GetMapPlayerPosition(groupTag)
+--d(">groupMember is NOT hidden by instance, isInCurrentMap: " .. tos(isInCurrentMap))
+						if isInCurrentMap then
+							if not isBreadcrumbed or (isBreadcrumbed and FCOAB.settingsVars.settings.groupLeaderPinPingPongBreadcrumbed) then
+								--self:CreatePin(isLeader and MAP_PIN_TYPE_GROUP_LEADER or MAP_PIN_TYPE_GROUP, tagData, x, y, NO_RADIUS, NO_BORDER_INFO, isSymbolicLocation)
+								local groupLeaderPin = ZO_WorldMap_GetPinManager():FindPin("group", MAP_PIN_TYPE_GROUP_LEADER, nil)
+								if groupLeaderPin ~= nil then
+									--local groupLeaderTag = groupLeaderPin:GetUnitTag()
+--d(">found group member tag on current map: " ..tos(tagData) .. ", key: " ..tos(groupLeaderPin) .. "; groupLeaderTag: " ..tos(groupLeaderTag))
+									return groupLeaderPin:GetControl()
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function mapPinPingPong(whichMapPin, fromKeybind)
+--d("[FCOAB]mapPinPingPong - whichMapPin: " ..tos(whichMapPin) .. "; fromKeybind: " ..tos(fromKeybind))
+	if whichMapPin == nil then return end
+	fromKeybind = fromKeybind or false
+
+	--Group leader map pin ping pong effect, if we are grouped and aren't teh group leader outself
+	if whichMapPin == "groupleader" and IsUnitGrouped(CON_PLAYER) then --and not IsUnitGroupLeader(CON_PLAYER) then
+		if not ZO_WorldMap_IsPinGroupShown(MAP_FILTER_GROUP_MEMBERS) then return end --No group pins shown on the map? Then do not add any ping pong effect
+
+		local settings = FCOAB.settingsVars.settings
+		if not settings.groupLeaderPinPingPong then if not fromKeybind then return false end end
+
+		--local player = ZO_WorldMap_GetPinManager():GetPlayerPin():GetControl()
+		--local group = ZO_MapPin.PIN_DATA[MAP_PIN_TYPE_GROUP]
+		--local leader = ZO_MapPin.PIN_DATA[MAP_PIN_TYPE_GROUP_LEADER]
+
+		local leaderPin = checkGroupTagIsVisibleAndGetMapPin("groupLeader")
+		applyPingPongAnimationToMapPin(leaderPin, settings.groupLeaderPinPingPongScaling)
+	end
+end
+
+local mapSceneChangeCallBackRegistered
+local function registerGroupLeaderMapPinPingPong()
+--d("[FCOAB]registerGroupLeaderMapPinPingPong - setting group leader: " ..tos(FCOAB.settingsVars.settings.groupLeaderPinPingPong))
+	if FCOAB.settingsVars.settings.groupLeaderPinPingPong == true then
+        if not mapSceneChangeCallBackRegistered then
+			local function mapSceneCallBack(p_oldState, p_newState)
+				if p_newState == SCENE_SHOWN then
+					mapPinPingPong("groupleader", false)
+				end
+			end
+            --Register a callback function for the wolrd map scene
+            --as we are in accessibilitymode we only need to register the callback for the gamepad map
+			mapSceneKeyboard:RegisterCallback("StateChange", function(oldState, newState)
+                mapSceneCallBack(oldState, newState)
+            end)
+            mapSceneGamepad:RegisterCallback("StateChange", function(oldState, newState)
+                mapSceneCallBack(oldState, newState)
+            end)
+
+
+			CM:RegisterCallback("OnWorldMapChanged", function()
+--d("[FCOAB]WorldMapChanged")
+				zo_callLater(function() --delay a bit so the internal key/index of the map pin properly updates to the groups -> ZO_WorldMapPins_Manager:RefreshGroupPins
+					mapPinPingPong("groupleader", false)
+				end, 10)
+
+			end)
+
+            mapSceneChangeCallBackRegistered = true
+        end
+	end
+end
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Keybindings
@@ -2149,11 +2288,6 @@ function FCOAB.ClearAccessibilityChatReaderQueue()
 	end
 end
 
-local function checkIfScreenNarratonIsEnabledAndEnableIfNotEnabled()
-
-	return true
-end
-
 function FCOAB.LetMeHearCurrentValue(valueToPlay)
 	if type(valueToPlay) ~= "string" or valueToPlay == "" then return end
 	local readThisText
@@ -2171,7 +2305,9 @@ function FCOAB.LetMeHearCurrentValue(valueToPlay)
 	end
 end
 
-
+function FCOAB.MapPinPingPong(mapPinType)
+	mapPinPingPong(mapPinType, true)
+end
 
 --===================== SLASH COMMANDS ==============================================
 --Show a help inside the chat
@@ -2886,6 +3022,49 @@ local function BuildAddonMenu()
 			type = 'header',
 			name = "Group",
 		},
+		{
+			type = "checkbox",
+			name    = "Group leader - Map pin ping-pong",
+			tooltip = "Shows a ping-pong (big-normal size) effect at the group leader map pin, as you open the map",
+			getFunc = function() return settings.groupLeaderPinPingPong end,
+			setFunc = function(value)
+				settings.groupLeaderPinPingPong = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Map pin ping-pong")
+				registerGroupLeaderMapPinPingPong()
+			end,
+			default = defaultSettings.groupLeaderPinPingPong,
+			--disabled = function() return false end,
+		},
+        {
+            type = "slider",
+            name = "Group leader - Ping pong scaling",
+            tooltip = "Set the scaling of the group leader's map pin ping pong effect",
+            min = 1,
+            max = 100,
+            decimals = 0,
+            autoSelect = true,
+            getFunc = function() return settings.groupLeaderPinPingPongScaling end,
+            setFunc = function(volumeLevel)
+                settings.groupLeaderPinPingPongScaling = volumeLevel
+				outputLAMSettingsChangeToChat(tos(volumeLevel), "Group leader: Ping-pong scaling")
+            end,
+            default = defaultSettings.groupLeaderPinPingPongScaling,
+            width="half",
+            disabled = function() return not settings.groupLeaderPinPingPong end,
+        },
+		{
+			type = "checkbox",
+			name    = "Group leader - Map pin ping-pong breadcrumbed",
+			tooltip = "Show the group leader ping-pong effect if the group leader is at other instances/breadcrumbed (if you disable this setting the group leader's icon won't ping-pong e.g. if he/she is in a delve or dungeon etc.)",
+			getFunc = function() return settings.groupLeaderPinPingPongBreadcrumbed end,
+			setFunc = function(value)
+				settings.groupLeaderPinPingPongBreadcrumbed = value
+				outputLAMSettingsChangeToChat(tos(value), "Group leader: Map pin ping-pong for other instances/breadcrumbed")
+			end,
+			default = defaultSettings.groupLeaderPinPingPongBreadcrumbed,
+            disabled = function() return not settings.groupLeaderPinPingPong end,
+        },
+
 		{
 			type = "checkbox",
 			name    = "Group leader - Play sound",
@@ -4140,6 +4319,8 @@ local function CreateGroupHooks()
 			end
 		end, 1000)
 	end)
+
+	registerGroupLeaderMapPinPingPong()
 end
 
 
@@ -4262,6 +4443,9 @@ local function LoadUserSettings()
 		["groupLeaderClockPositionDelay"] = 4,
 		["groupLeaderClockPositionIfLookingAtGroupLeader"] = false,
 		["chatGroupLeaderClockPositionPrefix"] = ".",
+		["groupLeaderPinPingPong"] = false,
+		["groupLeaderPinPingPongScaling"] = 3,
+		["groupLeaderPinPingPongBreadcrumbed"] = true,
 
 		["preferredGroupMountDisplayName"] = "",
 

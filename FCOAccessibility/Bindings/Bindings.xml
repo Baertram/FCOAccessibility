@@ -65,6 +65,10 @@
                 <Down>FCOAB.ToggleLAMSetting("groupLeaderDirectionPosition", "groupLeaderClockPosition")</Down>
             </Action>
 
+            <Action name="FCOAB_GROUPLEADERMAPPINPINGPONG">
+                <Down>FCOAB.MapPinPingPong("groupleader")</Down>
+            </Action>
+
             <Action name="FCOAB_SETTING_AUTO_REMOVE_WAYPOINT">
                 <Down>FCOAB.ToggleLAMSetting("autoRemoveWaypoint")</Down>
             </Action>

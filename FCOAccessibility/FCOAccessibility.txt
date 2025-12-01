@@ -1,11 +1,11 @@
 ## Title: |c00FF00FCO |cFFFF00Accessibility|r
 ## Author: Baertram
-## Version: 1.9
+## Version: 2.0
 ## AddOnVersion: 010900
 ## APIVersion: 101048 101049
 ## Description: An accessibility helper addon, especially for visually impaired players
 ## SavedVariables: FCOAccessibility_Settings
-## DependsOn: LibAddonMenu-2.0>=41 LibAddonMenuSoundSlider>=005 LibGPS>=73
+## DependsOn: LibAddonMenu-2.0>=41 LibAddonMenuSoundSlider>=006 LibGPS>=73
 
 ## Main addon
 FCOAccessibility.lua
