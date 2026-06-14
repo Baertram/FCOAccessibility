@@ -2148,6 +2148,21 @@ local function registerGroupLeaderMapPinPingPong()
 	end
 end
 
+-- gamepad_worldMap uses GamepadUIMode (allowFallthrough false), which blocks General-layer addon keybinds.
+-- Push a dedicated fallthrough layer above UI shortcuts via ZO_ActionLayerFragment on GAMEPAD_WORLD_MAP_SCENE.
+local fcoabGamepadMapActionLayerFragment
+
+local function registerGamepadWorldMapActionLayerFragment()
+	if fcoabGamepadMapActionLayerFragment ~= nil then
+		return
+	end
+	if GAMEPAD_WORLD_MAP_SCENE == nil then
+		return
+	end
+	fcoabGamepadMapActionLayerFragment = ZO_ActionLayerFragment:New(GetString(SI_KEYBINDINGS_LAYER_FCOAB_GAMEPAD_MAP))
+	GAMEPAD_WORLD_MAP_SCENE:AddFragment(fcoabGamepadMapActionLayerFragment)
+end
+
 ------------------------------------------------------------------------------------------------------------------------
 -- Keybindings
 ------------------------------------------------------------------------------------------------------------------------
@@ -4321,6 +4336,7 @@ local function CreateGroupHooks()
 	end)
 
 	registerGroupLeaderMapPinPingPong()
+	registerGamepadWorldMapActionLayerFragment()
 end
 
 
