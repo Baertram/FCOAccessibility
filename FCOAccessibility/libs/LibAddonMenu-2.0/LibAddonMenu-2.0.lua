@@ -3,7 +3,7 @@
 ------------------------------------------------------------------
 
 
-local MAJOR, MINOR = "LibAddonMenu-2.0", 41
+local MAJOR, MINOR = "LibAddonMenu-2.0", 43
 
 local lam
 if(not LibStub) then
@@ -271,6 +271,34 @@ local function OnLAMControlMouseExitStopNarrate(control)
     StopNarration()
 end
 
+local lamAddonMenuNarrationPendingText = ""
+local lamAddonMenuNarrationObjectRegistered = false
+
+local function getLamAddonMenuNarrationInfo()
+    return {
+        canNarrate = function()
+            return true --LibAddonMenu2 is showing a panel
+        end,
+        selectedNarrationFunction = function()
+            return snm:CreateNarratableObject(lamAddonMenuNarrationPendingText)
+        end,
+    }
+end
+
+local function registerLamAddonMenuNarrationObjectOnce()
+    if lamAddonMenuNarrationObjectRegistered then
+        return
+    end
+    local narrationInfo = getLamAddonMenuNarrationInfo()
+    local existingNarrationInfo = snm.customObjectNarrationInfo and snm.customObjectNarrationInfo[MAJOR]
+    if existingNarrationInfo ~= nil then
+        snm.customObjectNarrationInfo[MAJOR] = narrationInfo
+    else
+        snm:RegisterCustomObject(MAJOR, narrationInfo)
+    end
+    lamAddonMenuNarrationObjectRegistered = true
+end
+
 local function AddNewChatNarrationText(newText, stopCurrent)
     if IsAccessibilityUIReaderEnabled() == false then return end
     stopCurrent = stopCurrent or false
@@ -303,17 +331,9 @@ local function AddNewChatNarrationText(newText, stopCurrent)
     --RequestReadTextChatToClient(newTextClean) Unreliably reading it, sometimes yes, sometimes now
     --Switched to UI reader:
 
-    -- this current works when the addon manager is opened and the script is ran in chat
-    local addOnNarationData = {
-        canNarrate = function()
-            return true --LibAddonMenu2 is showing a panel
-        end,
-        selectedNarrationFunction = function()
-            return snm:CreateNarratableObject(newText)
-        end,
-    }
-    snm:RegisterCustomObject(MAJOR, addOnNarationData)
-	snm:QueueCustomEntry(MAJOR)
+    lamAddonMenuNarrationPendingText = newTextClean
+    registerLamAddonMenuNarrationObjectOnce()
+    snm:QueueCustomEntry(MAJOR)
     RequestReadPendingNarrationTextToClient(NARRATION_TYPE_UI_SCREEN)
 end
 
@@ -1781,7 +1801,7 @@ end
 -- panelData = table; data object for your panel - see controls\panel.lua
 function lam:RegisterAddonPanel(addonID, panelData)
     CheckSafetyAndInitialize(addonID)
-    if IsConsoleUI() then
+    if not IsKeyboardUISupported() then
         lam:registerConsoleAddonPanel(addonID, panelData)
         return
     end
@@ -1829,7 +1849,7 @@ end
 -- addonID = "string"; the same string passed to :RegisterAddonPanel
 -- optionsTable = table; the table containing all of the options controls and their data
 function lam:RegisterOptionControls(addonID, optionsTable) --optionsTable = {sliderData, buttonData, etc}
-    if IsConsoleUI() then
+    if not IsKeyboardUISupported() then
         lam:registerConsoleOptionControls(addonID, optionsTable)
     end
     addonToOptionsMap[addonID] = optionsTable
@@ -1838,7 +1858,7 @@ end
 --INTERNAL FUNCTION
 --creates LAM's Addon Settings entry in ZO_GameMenu
 local function CreateAddonSettingsMenuEntry()
-    if IsConsoleUI() then return end
+    if not IsKeyboardUISupported() then return end
     local panelData = {
         id = KEYBOARD_OPTIONS.currentPanelId,
         name = util.L["PANEL_NAME"],
@@ -2279,7 +2299,7 @@ local function LamToHASDescriptionConverter(entry, controlTable)
 end
 
 local function LamToHASDividerConverter(entry, controlTable)
-    newOption = {
+    local newOption = {
         type = LibHarvensAddonSettings.ST_SECTION,
         label = nil,
     }
@@ -2287,6 +2307,7 @@ local function LamToHASDividerConverter(entry, controlTable)
 end
 
 function lam:convertLamOptionsToHasTable(optionsTable, controlTable)
+    if not LibHarvensAddonSettings then return end
     local LAMtoHAS = {
         slider = LibHarvensAddonSettings.ST_SLIDER,
         header = LibHarvensAddonSettings.ST_SECTION,
@@ -2344,7 +2365,7 @@ lam.LHASConversion.settingTables = {}
 lam.LHASConversion.optionControls = {}
 
 function lam:registerConsoleAddonPanel(addonID, panelData)
-    if IsConsoleUI() then
+    if not IsKeyboardUISupported() and LibHarvensAddonSettings then
         local LHA = LibHarvensAddonSettings
         local options = {
             allowDefaults = panelData.registerForDefaults, --will allow users to reset the settings to default values
@@ -2358,7 +2379,7 @@ function lam:registerConsoleAddonPanel(addonID, panelData)
 end
 
 function lam:registerConsoleOptionControls(addonID, optionsTable)
-    if not IsConsoleUI() then
+    if IsKeyboardUISupported() or not LibHarvensAddonSettings then
         return
     end
     if lam.LHASConversion.settingTables[addonID] then
