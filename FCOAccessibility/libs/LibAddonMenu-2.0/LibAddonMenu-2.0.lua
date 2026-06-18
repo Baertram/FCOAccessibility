@@ -271,34 +271,6 @@ local function OnLAMControlMouseExitStopNarrate(control)
     StopNarration()
 end
 
-local lamAddonMenuNarrationPendingText = ""
-local lamAddonMenuNarrationObjectRegistered = false
-
-local function getLamAddonMenuNarrationInfo()
-    return {
-        canNarrate = function()
-            return true --LibAddonMenu2 is showing a panel
-        end,
-        selectedNarrationFunction = function()
-            return snm:CreateNarratableObject(lamAddonMenuNarrationPendingText)
-        end,
-    }
-end
-
-local function registerLamAddonMenuNarrationObjectOnce()
-    if lamAddonMenuNarrationObjectRegistered then
-        return
-    end
-    local narrationInfo = getLamAddonMenuNarrationInfo()
-    local existingNarrationInfo = snm.customObjectNarrationInfo and snm.customObjectNarrationInfo[MAJOR]
-    if existingNarrationInfo ~= nil then
-        snm.customObjectNarrationInfo[MAJOR] = narrationInfo
-    else
-        snm:RegisterCustomObject(MAJOR, narrationInfo)
-    end
-    lamAddonMenuNarrationObjectRegistered = true
-end
-
 local function AddNewChatNarrationText(newText, stopCurrent)
     if IsAccessibilityUIReaderEnabled() == false then return end
     stopCurrent = stopCurrent or false
@@ -331,9 +303,17 @@ local function AddNewChatNarrationText(newText, stopCurrent)
     --RequestReadTextChatToClient(newTextClean) Unreliably reading it, sometimes yes, sometimes now
     --Switched to UI reader:
 
-    lamAddonMenuNarrationPendingText = newTextClean
-    registerLamAddonMenuNarrationObjectOnce()
-    snm:QueueCustomEntry(MAJOR)
+    -- this current works when the addon manager is opened and the script is ran in chat
+    local addOnNarationData = {
+        canNarrate = function()
+            return true --LibAddonMenu2 is showing a panel
+        end,
+        selectedNarrationFunction = function()
+            return snm:CreateNarratableObject(newText)
+        end,
+    }
+    snm:RegisterCustomObject(MAJOR, addOnNarationData)
+	snm:QueueCustomEntry(MAJOR)
     RequestReadPendingNarrationTextToClient(NARRATION_TYPE_UI_SCREEN)
 end
 

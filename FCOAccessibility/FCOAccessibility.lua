@@ -287,6 +287,8 @@ local targetMarkersNumbersApplied = {}
 local hadLastCombatAnyChatMessage = false
 local wasNarrationQueueCleared = false
 
+local fcoabGamepadMapActionLayerFragment
+
 
 --===================== FUNCTIONS ==============================================
 --[[
@@ -2101,9 +2103,9 @@ local function playerMapPinPingPong(fromKeybind)
 	local myPin = ZO_WorldMap_GetPinManager():GetPlayerPin():GetControl()
 	if myPin then
 		local playerPinScaling = FCOAB.settingsVars.settings.playerPinPingPongScaling
-
+		--Votan's MiniMap is shown: Scale only with a fixed multiplier 2, else the pin will be too big
 		if MAP_MODE_VOTANS_MINIMAP ~= nil and ZO_WorldMap_GetMode() == MAP_MODE_VOTANS_MINIMAP then
-			playerPinScaling=2
+			playerPinScaling = 2
 		end
 		local animation, timeline = CreateSimpleAnimation(ANIMATION_SCALE, myPin, 150)
 		animation:SetScaleValues(1, playerPinScaling)
@@ -2178,15 +2180,9 @@ end
 
 -- gamepad_worldMap uses GamepadUIMode (allowFallthrough false), which blocks General-layer addon keybinds.
 -- Push a dedicated fallthrough layer above UI shortcuts via ZO_ActionLayerFragment on GAMEPAD_WORLD_MAP_SCENE.
-local fcoabGamepadMapActionLayerFragment
-
 local function registerGamepadWorldMapActionLayerFragment()
-	if fcoabGamepadMapActionLayerFragment ~= nil then
-		return
-	end
-	if GAMEPAD_WORLD_MAP_SCENE == nil then
-		return
-	end
+	--Only register the fragment for the gamepad map scecne once
+	if fcoabGamepadMapActionLayerFragment ~= nil or GAMEPAD_WORLD_MAP_SCENE == nil then return end
 	fcoabGamepadMapActionLayerFragment = ZO_ActionLayerFragment:New(GetString(SI_KEYBINDINGS_LAYER_FCOAB_GAMEPAD_MAP))
 	GAMEPAD_WORLD_MAP_SCENE:AddFragment(fcoabGamepadMapActionLayerFragment)
 end
@@ -4387,11 +4383,13 @@ local function CreateGroupHooks()
 	end)
 
 	registerGroupLeaderMapPinPingPong()
-	registerGamepadWorldMapActionLayerFragment()
 end
 
 
 local function CreateESOHooks()
+	--Add an own ActionLayer fragment for the Gamepad WorldMap keybinds
+	registerGamepadWorldMapActionLayerFragment()
+
 	-- PreHook ReloadUI, SetCVar, LogOut & Quit to handle current accesibility mode narration volume
     ZO_PreHook("ReloadUI", function()
 		updateCurrentAccesibilityNarrationVolume()

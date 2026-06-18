@@ -1,5 +1,7 @@
---Keybind strings
+--Keybind layers
 ZO_CreateStringId("SI_KEYBINDINGS_LAYER_FCOAB_GAMEPAD_MAP",                                  "FCO Accessibility (map)")
+
+--Keybind strings
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_ACCESSIBILTY_MODE",                          "Tog. Accessibility Mode")
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_ACCESSIBILTY_CHATREADER",                    "Tog. Chat Reader (Accessibility mode)")
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_TOGGLE_ACCESSIBILTY_MENUREADER",                    "Tog. Menu Reader (Accessibility mode)")
