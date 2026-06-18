@@ -40,3 +40,4 @@ ZO_CreateStringId("SI_BINDING_NAME_FCOAB_SAVE_PASSENGER_MOUNT_DISPLAYNAME",     
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_MOUNT_PASSENGER_MOUNT_DISPLAYNAME",                 "Passenger mount with saved player")
 
 ZO_CreateStringId("SI_BINDING_NAME_FCOAB_GROUPLEADERMAPPINPINGPONG",                         "Group leader map pin ping-pong")
+ZO_CreateStringId("SI_BINDING_NAME_FCOAB_PLAYERMAPPINPINGPONG",                              "Player map pin ping-pong")
