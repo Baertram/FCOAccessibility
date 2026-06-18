@@ -157,7 +157,6 @@ function LAMCreateControl.submenu(parent, submenuData, controlName)
     animation:SetHandler("OnStop", function(self, completedPlaying)
         scroll:SetResizeToFitDescendents(control.open)
         scroll:SetResizeToFitConstrains(ANCHOR_CONSTRAINS_XY)
-
         if control.open then
             control.arrow:SetTexture("EsoUI\\Art\\Miscellaneous\\list_sortup.dds")
             scroll:SetResizeToFitPadding(5, 20)

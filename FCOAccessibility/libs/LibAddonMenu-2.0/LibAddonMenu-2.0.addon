@@ -1,10 +1,9 @@
-## APIVersion: 101048
+## APIVersion: 101049 101050
 ## Title: LibAddonMenu-2.0
-## Version: 2.0 r41 Accessibility
-## AddOnVersion: 410
+## Version: 2.0 r43 Accessibility Baertram
+## AddOnVersion: 430
 ## IsLibrary: true
-## ConsoleDependsOn: LibHarvensAddonSettings>=20004
-## OptionalDependsOn: LibStub LibDebugLogger
+## OptionalDependsOn: LibStub LibDebugLogger LibHarvensAddonSettings
 ## Author: Seerah, sirinsidiator, et al.
 ## Contributors: votan, merlight, Garkin, Randactyl, KuroiLight, silvereyes333, Baertram, kyoma, klingo, phuein, Scootworks
 ## Description: A library to aid in the creation of option panels.

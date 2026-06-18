@@ -3,7 +3,7 @@
 ------------------------------------------------------------------
 
 
-local MAJOR, MINOR = "LibAddonMenu-2.0", 41
+local MAJOR, MINOR = "LibAddonMenu-2.0", 43
 
 local lam
 if(not LibStub) then
@@ -1781,7 +1781,7 @@ end
 -- panelData = table; data object for your panel - see controls\panel.lua
 function lam:RegisterAddonPanel(addonID, panelData)
     CheckSafetyAndInitialize(addonID)
-    if IsConsoleUI() then
+    if not IsKeyboardUISupported() then
         lam:registerConsoleAddonPanel(addonID, panelData)
         return
     end
@@ -1829,7 +1829,7 @@ end
 -- addonID = "string"; the same string passed to :RegisterAddonPanel
 -- optionsTable = table; the table containing all of the options controls and their data
 function lam:RegisterOptionControls(addonID, optionsTable) --optionsTable = {sliderData, buttonData, etc}
-    if IsConsoleUI() then
+    if not IsKeyboardUISupported() then
         lam:registerConsoleOptionControls(addonID, optionsTable)
     end
     addonToOptionsMap[addonID] = optionsTable
@@ -1838,7 +1838,7 @@ end
 --INTERNAL FUNCTION
 --creates LAM's Addon Settings entry in ZO_GameMenu
 local function CreateAddonSettingsMenuEntry()
-    if IsConsoleUI() then return end
+    if not IsKeyboardUISupported() then return end
     local panelData = {
         id = KEYBOARD_OPTIONS.currentPanelId,
         name = util.L["PANEL_NAME"],
@@ -2279,7 +2279,7 @@ local function LamToHASDescriptionConverter(entry, controlTable)
 end
 
 local function LamToHASDividerConverter(entry, controlTable)
-    newOption = {
+    local newOption = {
         type = LibHarvensAddonSettings.ST_SECTION,
         label = nil,
     }
@@ -2287,6 +2287,7 @@ local function LamToHASDividerConverter(entry, controlTable)
 end
 
 function lam:convertLamOptionsToHasTable(optionsTable, controlTable)
+    if not LibHarvensAddonSettings then return end
     local LAMtoHAS = {
         slider = LibHarvensAddonSettings.ST_SLIDER,
         header = LibHarvensAddonSettings.ST_SECTION,
@@ -2344,7 +2345,7 @@ lam.LHASConversion.settingTables = {}
 lam.LHASConversion.optionControls = {}
 
 function lam:registerConsoleAddonPanel(addonID, panelData)
-    if IsConsoleUI() then
+    if not IsKeyboardUISupported() and LibHarvensAddonSettings then
         local LHA = LibHarvensAddonSettings
         local options = {
             allowDefaults = panelData.registerForDefaults, --will allow users to reset the settings to default values
@@ -2358,7 +2359,7 @@ function lam:registerConsoleAddonPanel(addonID, panelData)
 end
 
 function lam:registerConsoleOptionControls(addonID, optionsTable)
-    if not IsConsoleUI() then
+    if IsKeyboardUISupported() or not LibHarvensAddonSettings then
         return
     end
     if lam.LHASConversion.settingTables[addonID] then

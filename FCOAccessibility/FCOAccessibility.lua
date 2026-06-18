@@ -13,7 +13,7 @@ FCOAB.addonVars.gAddonName                 = "FCOAccessibility"
 FCOAB.addonVars.addonNameMenu              = "FCO Accessibility"
 FCOAB.addonVars.addonNameMenuDisplay       = "|c00FF00FCO |cFFFF00Accessibility|r"
 FCOAB.addonVars.addonAuthor                = '|cFFFF00Baertram|r'
-FCOAB.addonVars.addonVersionOptions        = '2.0' -- version shown in the settings panel
+FCOAB.addonVars.addonVersionOptions        = '2.1' -- version shown in the settings panel
 FCOAB.addonVars.addonSavedVariablesName    = "FCOAccessibility_Settings"
 FCOAB.addonVars.addonSavedVariablesVersion = 0.02 -- Changing this will reset SavedVariables!
 FCOAB.addonVars.gAddonLoaded               = false
@@ -2012,8 +2012,8 @@ end
 
 local mapPinsWithAnimation = {}
 local function applyPingPongAnimationToMapPin(mapPin, scaling)
-	if mapPin == nil  or type(mapPin) ~= "userdata" then return end
 --d("[FCOAB]applyPingPongAnimationToMapPin - mapPin: " ..tos(mapPin) .. "; scaling: " ..tos(scaling))
+	if mapPin == nil  or type(mapPin) ~= "userdata" then return end
 
 	scaling = scaling or 4
 	if MAP_MODE_VOTANS_MINIMAP ~= nil and ZO_WorldMap_GetMode() == MAP_MODE_VOTANS_MINIMAP then
@@ -2041,6 +2041,7 @@ local function applyPingPongAnimationToMapPin(mapPin, scaling)
 end
 
 local function checkGroupTagIsVisibleAndGetMapPin(groupTagCheck)
+--d("[FCOAB]checkGroupTagIsVisibleAndGetMapPin - groupTagCheck: " .. tos(groupTagCheck))
 	if IsUnitGrouped(CON_PLAYER) and ZO_WorldMap_IsPinGroupShown(MAP_FILTER_GROUP_MEMBERS) then
 		if not groupTagCheck == "groupLeader" then return end --currently only the groupleader pin is supported
 
@@ -2081,8 +2082,8 @@ local function checkGroupTagIsVisibleAndGetMapPin(groupTagCheck)
 								--self:CreatePin(isLeader and MAP_PIN_TYPE_GROUP_LEADER or MAP_PIN_TYPE_GROUP, tagData, x, y, NO_RADIUS, NO_BORDER_INFO, isSymbolicLocation)
 								local groupLeaderPin = ZO_WorldMap_GetPinManager():FindPin("group", MAP_PIN_TYPE_GROUP_LEADER, nil)
 								if groupLeaderPin ~= nil then
-									--local groupLeaderTag = groupLeaderPin:GetUnitTag()
---d(">found group member tag on current map: " ..tos(tagData) .. ", key: " ..tos(groupLeaderPin) .. "; groupLeaderTag: " ..tos(groupLeaderTag))
+									local groupLeaderTag = groupLeaderPin:GetUnitTag()
+--(">found group member tag on current map - key: " ..tos(groupLeaderPin) .. "; groupLeaderTag: " ..tos(groupLeaderTag))
 									return groupLeaderPin:GetControl()
 								end
 							end
@@ -2094,17 +2095,41 @@ local function checkGroupTagIsVisibleAndGetMapPin(groupTagCheck)
 	end
 end
 
+
+--Play an animation on the player pin: PingPong -> To easily see the arrow on the map
+local function playerMapPinPingPong(fromKeybind)
+	local myPin = ZO_WorldMap_GetPinManager():GetPlayerPin():GetControl()
+	if myPin then
+		local playerPinScaling = FCOAB.settingsVars.settings.playerPinPingPongScaling
+
+		if MAP_MODE_VOTANS_MINIMAP ~= nil and ZO_WorldMap_GetMode() == MAP_MODE_VOTANS_MINIMAP then
+			playerPinScaling=2
+		end
+		local animation, timeline = CreateSimpleAnimation(ANIMATION_SCALE, myPin, 150)
+		animation:SetScaleValues(1, playerPinScaling)
+		animation:SetDuration(150)
+		timeline:SetPlaybackType(ANIMATION_PLAYBACK_PING_PONG, 3)
+		timeline:PlayFromStart()
+	end
+end
+
 local function mapPinPingPong(whichMapPin, fromKeybind)
 --d("[FCOAB]mapPinPingPong - whichMapPin: " ..tos(whichMapPin) .. "; fromKeybind: " ..tos(fromKeybind))
 	if whichMapPin == nil then return end
 	fromKeybind = fromKeybind or false
 
-	--Group leader map pin ping pong effect, if we are grouped and aren't teh group leader outself
+	--Group leader map pin ping pong effect, if we are grouped and aren't the group leader outself
 	if whichMapPin == "groupleader" and IsUnitGrouped(CON_PLAYER) then --and not IsUnitGroupLeader(CON_PLAYER) then
-		if not ZO_WorldMap_IsPinGroupShown(MAP_FILTER_GROUP_MEMBERS) then return end --No group pins shown on the map? Then do not add any ping pong effect
+		if not ZO_WorldMap_IsPinGroupShown(MAP_FILTER_GROUP_MEMBERS) then
+			--d("<abort: not ZO_WorldMap_IsPinGroupShown(MAP_FILTER_GROUP_MEMBERS)")
+			return
+		end --No group pins shown on the map? Then do not add any ping pong effect
 
 		local settings = FCOAB.settingsVars.settings
-		if not settings.groupLeaderPinPingPong then if not fromKeybind then return false end end
+		if not settings.groupLeaderPinPingPong and not fromKeybind then
+			--d("<abort: settings.groupLeaderPinPingPong DISABLED")
+			return false
+		end
 
 		--local player = ZO_WorldMap_GetPinManager():GetPlayerPin():GetControl()
 		--local group = ZO_MapPin.PIN_DATA[MAP_PIN_TYPE_GROUP]
@@ -2112,6 +2137,9 @@ local function mapPinPingPong(whichMapPin, fromKeybind)
 
 		local leaderPin = checkGroupTagIsVisibleAndGetMapPin("groupLeader")
 		applyPingPongAnimationToMapPin(leaderPin, settings.groupLeaderPinPingPongScaling)
+
+	elseif whichMapPin == "player" then
+		playerMapPinPingPong(fromKeybind)
 	end
 end
 
@@ -3015,6 +3043,29 @@ local function BuildAddonMenu()
 			default = defaultSettings.reticleToChatInteractionDisableInGroup,
 			disabled = function() return not settings.reticleInteractionToChatText end
 			--disabled = function() false end,
+		},
+
+		--==============================================================================
+		{
+			type = 'header',
+			name = "Map",
+		},
+		{
+			type = "slider",
+			name = "Player pin - Ping pong scaling",
+			tooltip = "Set the scaling of the player's map pin ping pong effect (for they keybind)",
+			min = 1,
+			max = 100,
+			decimals = 0,
+			autoSelect = true,
+			getFunc = function() return settings.playerPinPingPongScaling end,
+			setFunc = function(volumeLevel)
+				settings.playerPinPingPongScaling = volumeLevel
+				outputLAMSettingsChangeToChat(tos(volumeLevel), "Player: Ping-pong scaling (keybind)")
+			end,
+			default = defaultSettings.playerPinPingPongScaling,
+			width="half",
+			--disabled = function() return not settings.playerPinPingPong end,
 		},
 
 		--==============================================================================
@@ -4446,6 +4497,8 @@ local function LoadUserSettings()
 		["groupLeaderPinPingPong"] = false,
 		["groupLeaderPinPingPongScaling"] = 3,
 		["groupLeaderPinPingPongBreadcrumbed"] = true,
+
+		["playerPinPingPongScaling"] = 3,
 
 		["preferredGroupMountDisplayName"] = "",
 

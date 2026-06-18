@@ -69,6 +69,10 @@
                 <Down>FCOAB.MapPinPingPong("groupleader")</Down>
             </Action>
 
+            <Action name="FCOAB_PLAYERMAPPINPINGPONG">
+                <Down>FCOAB.MapPinPingPong("player")</Down>
+            </Action>
+
             <Action name="FCOAB_SETTING_AUTO_REMOVE_WAYPOINT">
                 <Down>FCOAB.ToggleLAMSetting("autoRemoveWaypoint")</Down>
             </Action>
